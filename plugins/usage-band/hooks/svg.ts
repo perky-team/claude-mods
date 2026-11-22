@@ -12,11 +12,13 @@ export type Meter = {
   leftShare: number | null
   // The use against an even plan, drawn as a badge after the bar; null for none.
   pace: Pace | null
+  // What a pointer resting on the meter is told, where the surface shows it.
+  title?: string
 }
 
 // A short plain note after the meters, such as "f15%"; grey unless colored.
 // `agents` draws the agent mark, a small robot head, before the text.
-export type Note = { text: string; color?: string; icon?: 'agents' }
+export type Note = { text: string; color?: string; icon?: 'agents'; title?: string }
 
 type Rgb = readonly [number, number, number]
 
@@ -63,6 +65,15 @@ export const textWidth = (text: string): number =>
 const run = (x: number, y: number, text: string, color: string, anchor: 'start' | 'middle' = 'start'): string =>
   `<text x="${x}" y="${y}" text-anchor="${anchor}" textLength="${textWidth(text)}" lengthAdjust="spacing" ${FONT} font-size="12" font-weight="600" fill="${color}">${text}</text>`
 
+const escape = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+// A part of the picture with a tooltip: the unseen rect makes the gaps between
+// its marks answer the pointer too.
+const titled = (title: string | undefined, from: number, to: number, height: number, marks: string): string =>
+  title
+    ? `<g><title>${escape(title)}</title><rect x="${from}" y="0" width="${to - from}" height="${height}" fill="#000" fill-opacity="0"/>${marks}</g>`
+    : marks
+
 const AGENT_MARK = 13
 
 // A robot head, 13 wide: an antenna, a rounded face, two eyes.
@@ -95,11 +106,12 @@ export const barsSvg = (
       dot()
     }
 
+    const from = x
     const fill = (BAR * clamp(meter.percent ?? 0)) / 100
+    let marks = `<rect x="${x}" y="7" width="${BAR}" height="8" rx="4" fill="${GREY}" fill-opacity="0.3"/>`
 
-    body += `<rect x="${x}" y="7" width="${BAR}" height="8" rx="4" fill="${GREY}" fill-opacity="0.3"/>`
     // A fill narrower than its own round caps would not draw as a bar.
-    body +=
+    marks +=
       fill > 0
         ? `<rect x="${x}" y="7" width="${Math.max(8, fill)}" height="8" rx="4" fill="${HEX[barColor(meter.percent)]}"/>`
         : ''
@@ -111,16 +123,18 @@ export const barsSvg = (
       const color = HEX[paceColor(meter.pace)]
 
       x += INNER
-      body += `<rect x="${x}" y="2" width="${width}" height="18" rx="9" fill="${color}" fill-opacity="0.18"/>`
-      body += run(x + width / 2, 15, text, color, 'middle')
+      marks += `<rect x="${x}" y="2" width="${width}" height="18" rx="9" fill="${color}" fill-opacity="0.18"/>`
+      marks += run(x + width / 2, 15, text, color, 'middle')
       x += width
     }
 
     if (meter.left) {
       x += INNER
-      body += run(x, 15.5, meter.left, meter.leftShare === null ? GREY : leftColor(meter.leftShare))
+      marks += run(x, 15.5, meter.left, meter.leftShare === null ? GREY : leftColor(meter.leftShare))
       x += textWidth(meter.left)
     }
+
+    body += titled(meter.title, from, x, height, marks)
   })
 
   for (const note of notes) {
@@ -128,13 +142,17 @@ export const barsSvg = (
 
     dot()
 
+    const from = x
+    let marks = ''
+
     if (note.icon === 'agents') {
-      body += agentMark(x, color)
+      marks += agentMark(x, color)
       x += AGENT_MARK + 5
     }
 
-    body += run(x, 15.5, note.text, color)
+    marks += run(x, 15.5, note.text, color)
     x += textWidth(note.text)
+    body += titled(note.title, from, x, height, marks)
   }
 
   const width = Math.ceil(x + 1)

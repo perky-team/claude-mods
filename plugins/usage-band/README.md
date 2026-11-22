@@ -30,6 +30,8 @@ From left to right:
 | Weekly time left | Days, hours and minutes until the week resets: `2:07:15` |
 | Agents | How many subagents and teammates are still at work |
 
+In Claude Code Desktop, rest the pointer on a part of the row to read its exact figure: `Context 38%`, `5-hour limit 46% · resets 22:40 22.11`, `Weekly limit 61% · resets 07:00 25.11`, `Agents at work: 0`. The reset is given as the local time and date.
+
 ### Colors
 
 | Part | Green | Amber | Red |
@@ -109,7 +111,7 @@ claude plugin uninstall usage-band@perky-team
 
 | Where | Works | How it draws |
 | --- | --- | --- |
-| Claude Code Desktop, local sessions of the Code tab | Yes | One SVG picture; its colors are fixed and do not follow the app's theme |
+| Claude Code Desktop, local sessions of the Code tab | Yes | One SVG picture with tooltips; its colors are fixed and do not follow the app's theme |
 | Terminal | Yes | One line of text glyphs in the theme's colors |
 | Mobile app | Not tested | |
 | VS Code chat panel | No | The mod runs, but the editor draws no row above the prompt |

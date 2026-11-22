@@ -103,22 +103,26 @@ export const register: Register = on => {
     const working = await read($, agents)
     // Always there, grey at zero and blue while any agent works.
     const notes: Note[] = [
-      { text: String(working), icon: 'agents', ...(working > 0 ? { color: BLUE } : {}) },
-      ...(figures.fable ? [{ text: formatFable(figures.fable) }] : []),
+      { text: String(working), icon: 'agents', title: `Agents at work: ${working}`, ...(working > 0 ? { color: BLUE } : {}) },
+      ...(figures.fable ? [{ text: formatFable(figures.fable), title: `Fable weekly limit ${formatPercent(figures.fable.percentUsed)}` }] : []),
     ]
+    const said = (name: string, limit: typeof fiveHour) =>
+      `${name} ${formatPercent(limit?.percentUsed ?? null)}${limit?.resetsAt ? ` · resets ${formatReset(limit.resetsAt)}` : ''}`
     const meters: Meter[] = [
-      { percent: figures.contextPercent, left: '', leftShare: null, pace: null },
+      { percent: figures.contextPercent, left: '', leftShare: null, pace: null, title: `Context ${formatPercent(figures.contextPercent)}` },
       {
         percent: fiveHour?.percentUsed ?? null,
         left: formatLeftHours(fiveHour, now),
         leftShare: leftShare(fiveHour, FIVE_HOURS_MS, now),
         pace: windowPace(fiveHour, FIVE_HOURS_MS, now),
+        title: said('5-hour limit', fiveHour),
       },
       {
         percent: sevenDay?.percentUsed ?? null,
         left: formatLeftDays(sevenDay, now),
         leftShare: leftShare(sevenDay, WEEK_MS, now),
         pace: windowPace(sevenDay, WEEK_MS, now),
+        title: said('Weekly limit', sevenDay),
       },
     ]
 
@@ -128,14 +132,12 @@ export const register: Register = on => {
     if (e.surface !== 'terminal' && 'Svg' in table) {
       const { Svg } = table
       const picture = barsSvg(meters, notes)
-      const said = (name: string, limit: typeof fiveHour, pace: Meter['pace']) =>
-        `${name} ${formatPercent(limit?.percentUsed ?? null)}${pace ? ` pace ${formatPace(pace)}` : ''}${limit?.resetsAt ? ` resets ${formatReset(limit.resetsAt)}` : ''}`
-
       return (
         <Box>
           <Svg
             source={picture.source}
-            alt={`Context ${formatPercent(figures.contextPercent)}, ${said('5 hours', fiveHour, meters[1]!.pace)}, ${said('week', sevenDay, meters[2]!.pace)}${notes.map(note => `, ${note.icon === 'agents' ? `agents at work ${note.text}` : note.text}`).join('')}`}
+            alt={[...meters, ...notes].map(part => part.title).join(', ')}
+            isInteractive
             width={picture.width}
             height={picture.height}
           />

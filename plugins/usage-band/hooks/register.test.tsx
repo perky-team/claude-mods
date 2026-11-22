@@ -332,3 +332,21 @@ test('agents still at work are counted at the end of the line', async ($, on) =>
   expect(picture.source.includes('<rect x="119.7" y="6" width="11.6" height="10" rx="3" fill="none" stroke="#60a5fa"')).toBe(true)
   expect(picture.source.includes('◉')).toBe(false)
 })
+
+test('each part of the picture tells its figure to a resting pointer', async () => {
+  const picture = barsSvg(
+    [
+      { percent: 42, left: '', leftShare: null, pace: null, title: 'Context 42%' },
+      { percent: 71, left: '04:55', leftShare: 1, pace: null, title: '5-hour limit 71% <&>' },
+    ],
+    [{ text: '0', icon: 'agents', title: 'Agents at work: 0' }],
+  )
+
+  expect(picture.source.includes('<g><title>Context 42%</title>')).toBe(true)
+  expect(picture.source.includes('<title>5-hour limit 71% &lt;&amp;&gt;</title>')).toBe(true)
+  expect(picture.source.includes('<title>Agents at work: 0</title>')).toBe(true)
+  expect(picture.source.split('<g>').length).toBe(picture.source.split('</g>').length)
+
+  // A part with no title is drawn bare.
+  expect(barsSvg([{ percent: 1, left: '', leftShare: null, pace: null }]).source.includes('<title>')).toBe(false)
+})
