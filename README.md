@@ -1,6 +1,8 @@
 # claude-mods
 
-Mods for [Claude Code](https://code.claude.com) by perky-team. A mod is a plugin that changes how Claude Code looks or behaves.
+![License: MIT](https://img.shields.io/badge/license-MIT-blue)
+
+Mods for [Claude Code](https://code.claude.com) by perky-team. A mod is a plugin that changes how Claude Code looks or behaves: a row above the prompt, a panel beside the chat, a theme, a guard on tool calls.
 
 This repository is a plugin marketplace: add it once, then install any mod from it.
 
@@ -10,9 +12,11 @@ This repository is a plugin marketplace: add it once, then install any mod from 
 | --- | --- |
 | [usage-band](plugins/usage-band) | A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and a count of the agents at work |
 
+![The usage band](plugins/usage-band/docs/band.svg)
+
 ## Install
 
-From a shell:
+Add the marketplace, then install a mod from it. From a shell:
 
 ```
 claude plugin marketplace add perky-team/claude-mods
@@ -27,7 +31,9 @@ Or at the prompt of a terminal session:
 
 In the desktop app, where `/plugin` does not run: click + next to the prompt box, then Plugins, Add marketplace with `perky-team/claude-mods`, then Add plugin.
 
-A mod installed at the user scope loads in every session started after that, in the terminal and in the desktop app's local sessions.
+A mod installed at the user scope loads in every session started after that, in the terminal and in the desktop app's local sessions. A session that is already open picks it up after `/reload-plugins`.
+
+Mods need Claude Code 2.1.287 or later; each mod's own page says whether it needs a newer one.
 
 ## Update
 
@@ -36,7 +42,18 @@ claude plugin marketplace update perky-team
 claude plugin update usage-band@perky-team
 ```
 
-Restart the session to apply an update.
+The first command refreshes the catalog, the second moves the mod to the version the catalog now holds. Restart the session to apply an update.
+
+## Remove
+
+```
+claude plugin uninstall usage-band@perky-team
+claude plugin marketplace remove perky-team
+```
+
+## A word on trust
+
+A mod is code that runs inside Claude Code with your permissions: it is not sandboxed. Read a mod's `hooks/` folder before installing it, here as anywhere else.
 
 ## Versions
 
@@ -55,6 +72,7 @@ To release a change to a mod:
 1. Put the mod in `plugins/<mod>/`, with its own `README.md` and `CHANGELOG.md`.
 2. Add an entry for it to `.claude-plugin/marketplace.json`, its `source` set to `./plugins/<mod>`.
 3. Add a row for it to the table above.
+4. Run `claude plugin validate .` to check the catalog, and the two commands of step 2 above for the mod.
 
 ## License
 
