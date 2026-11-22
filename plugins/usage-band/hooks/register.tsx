@@ -8,13 +8,16 @@ import {
   barColor,
   countActive,
   filledCells,
+  endedTask,
   formatAgents,
+  formatCommands,
   formatFable,
   formatLeftDays,
   formatLeftHours,
   formatPace,
   formatPercent,
   formatReset,
+  isTimer,
   leftShare,
   live,
   paceColor,
@@ -30,6 +33,14 @@ const tick = atom({ plugin: 'usage-band', key: 'tick' } as const, 0)
 
 // Subagents and teammates still at work: they spend the limits in the background.
 const agents = atom({ plugin: 'usage-band', key: 'agents' } as const, 0)
+
+// The ids of the commands the main loop sent to the background and that the
+// engine has not yet reported ended.
+const commands = atom({ plugin: 'usage-band', key: 'commands' } as const, [])
+
+async function dropCommand($: EngineInterface, id: string): Promise<void> {
+  await update($, commands, ids => ids.filter(held => held !== id))
+}
 
 // A host that keeps no agents refuses the list: the count stays as it was, and
 // the hook that asked goes on.
@@ -85,6 +96,44 @@ export const register: Register = on => {
     return result
   })
 
+  // A command sent to the background is counted from the answer that says so,
+  // until the engine's notification that it ended, or a stop.
+  on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
+    const answer = await next(e)
+    const input = e as { command?: unknown }
+    const result = (answer as { result?: { backgroundTaskId?: unknown } }).result
+    const id = typeof result?.backgroundTaskId === 'string' ? result.backgroundTaskId : ''
+    const command = typeof input.command === 'string' ? input.command : ''
+
+    if (id && e.agentId === undefined && !isTimer(command)) {
+      await update($, commands, ids => (ids.includes(id) ? ids : [...ids, id]))
+    }
+
+    return answer
+  })
+
+  on('tool.call', { tool: 'TaskStop' }, async ($, e, next) => {
+    const answer = await next(e)
+    const input = e as { task_id?: unknown; shell_id?: unknown }
+    const id = typeof input.task_id === 'string' ? input.task_id : typeof input.shell_id === 'string' ? input.shell_id : ''
+
+    if (id) {
+      await dropCommand($, id)
+    }
+
+    return answer
+  })
+
+  on('prompt.submit', async ($, e, next) => {
+    const id = e.origin.kind === 'task-notification' ? endedTask(e.text) : null
+
+    if (id) {
+      await dropCommand($, id)
+    }
+
+    return next(e)
+  })
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const figures = await read($, snapshot)
     // Read for the redraw alone: the write once a minute brings the hook back.
@@ -101,9 +150,11 @@ export const register: Register = on => {
     const sevenDay = live(figures.sevenDay, now)
     // A snapshot stored before the mod read the Fable window has no such key.
     const working = await read($, agents)
-    // Always there, grey at zero and blue while any agent works.
+    const running = (await read($, commands)).length
+    // Always there, grey at zero and blue while any works.
     const notes: Note[] = [
       { text: String(working), icon: 'agents', title: `Agents at work: ${working}`, ...(working > 0 ? { color: BLUE } : {}) },
+      { text: String(running), icon: 'commands', title: `Background commands: ${running}`, ...(running > 0 ? { color: BLUE } : {}) },
       ...(figures.fable ? [{ text: formatFable(figures.fable), title: `Fable weekly limit ${formatPercent(figures.fable.percentUsed)}` }] : []),
     ]
     const said = (name: string, limit: typeof fiveHour) =>
@@ -171,7 +222,11 @@ export const register: Register = on => {
           {notes.map(note => [
             dot,
             <Text color={note.color ?? 'subtle'}>
-              {note.icon === 'agents' ? formatAgents(Number(note.text)) : note.text}
+              {note.icon === 'agents'
+                ? formatAgents(Number(note.text))
+                : note.icon === 'commands'
+                  ? formatCommands(Number(note.text))
+                  : note.text}
             </Text>,
           ])}
         </Text>

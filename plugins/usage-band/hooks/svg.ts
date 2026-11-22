@@ -17,8 +17,9 @@ export type Meter = {
 }
 
 // A short plain note after the meters, such as "f15%"; grey unless colored.
-// `agents` draws the agent mark, a small robot head, before the text.
-export type Note = { text: string; color?: string; icon?: 'agents'; title?: string }
+// An icon is drawn before the text: `agents` a small robot head, `commands` a
+// terminal window.
+export type Note = { text: string; color?: string; icon?: 'agents' | 'commands'; title?: string }
 
 type Rgb = readonly [number, number, number]
 
@@ -75,6 +76,12 @@ const titled = (title: string | undefined, from: number, to: number, height: num
     : marks
 
 const AGENT_MARK = 13
+
+// A terminal window, 13 wide: its frame, a prompt chevron, a cursor line.
+const commandMark = (x: number, color: string): string =>
+  `<rect x="${x + 0.7}" y="5" width="11.6" height="11" rx="2.5" fill="none" stroke="${color}" stroke-width="1.4"/>` +
+  `<polyline points="${x + 3.4},8.6 ${x + 5.6},10.6 ${x + 3.4},12.6" fill="none" stroke="${color}" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>` +
+  `<line x1="${x + 7}" y1="12.8" x2="${x + 9.6}" y2="12.8" stroke="${color}" stroke-width="1.3" stroke-linecap="round"/>`
 
 // A robot head, 13 wide: an antenna, a rounded face, two eyes.
 const agentMark = (x: number, color: string): string =>
@@ -145,8 +152,8 @@ export const barsSvg = (
     const from = x
     let marks = ''
 
-    if (note.icon === 'agents') {
-      marks += agentMark(x, color)
+    if (note.icon !== undefined) {
+      marks += note.icon === 'agents' ? agentMark(x, color) : commandMark(x, color)
       x += AGENT_MARK + 5
     }
 

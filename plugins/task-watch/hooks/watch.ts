@@ -1,0 +1,264 @@
+// What the watch does through the engine: follows the work, asks the watcher
+// model, writes the line, wakes the main model.
+
+import { atom, read, update } from 'claude-code'
+import type { EngineInterface } from 'claude-code'
+
+import type { Line, Watched } from '../types'
+import {
+  ACTIVE,
+  describe,
+  formatSpan,
+  isOwnWords,
+  isStalled,
+  mayAlert,
+  parseReport,
+  sampleOf,
+  systemPrompt,
+  tail,
+  usual,
+  wakeText,
+  withRun,
+} from './logic'
+import type { Durations, Facts, Settings } from './logic'
+
+const watched = atom({ plugin: 'task-watch', key: 'watched' } as const, [])
+const line = atom({ plugin: 'task-watch', key: 'line' } as const, null)
+const sample = atom({ plugin: 'task-watch', key: 'sample' } as const, '')
+
+const DURATIONS = 'durations'
+// An output file past this is judged by its age alone: its end is not read.
+const READ_LIMIT = 1_000_000
+// How long the last line stays once nothing is left to watch.
+export const LINGER_MS = 60 * 1000
+
+async function durationsOf($: EngineInterface): Promise<Durations> {
+  const stored: unknown = await $.store.get(DURATIONS)
+
+  return typeof stored === 'object' && stored !== null ? (stored as Durations) : {}
+}
+
+export async function follow($: EngineInterface, work: Omit<Watched, 'startedAt' | 'alertedAt'>): Promise<void> {
+  const now = await $.clock.now()
+  const entry: Watched = { ...work, startedAt: now, alertedAt: 0 }
+
+  await update($, watched, list => (list.some(w => w.id === entry.id) ? list : [...list, entry]))
+  // A warning already on the line is not written over by a start.
+  const opening: Line = { text: entry.label, level: 'info', at: now }
+
+  await update($, line, held => (held?.level === 'warn' ? held : opening))
+}
+
+// The work has ended: its run goes on record, and the line says how it ended
+// once nothing else is being watched.
+export async function finish($: EngineInterface, id: string, status: string): Promise<void> {
+  const ended = (await read($, watched)).find(w => w.id === id)
+
+  if (!ended) {
+    return
+  }
+
+  const now = await $.clock.now()
+  const ran = now - ended.startedAt
+  const isGood = status === 'completed' || status === 'finished'
+
+  if (ended.kind === 'command' && isGood) {
+    await $.store.set(DURATIONS, withRun(await durationsOf($), ended.command, ran))
+  }
+
+  await update($, watched, list => list.filter(w => w.id !== id))
+
+  // No words of the mod's own: the mark, the work's name and how long it ran.
+  const closing: Line = isGood
+    ? { text: `${ended.label} · ${formatSpan(ran)}`, level: 'ok', at: now }
+    : { text: `${ended.label} · ${status} · ${formatSpan(ran)}`, level: 'warn', at: now }
+
+  await update($, line, () => closing)
+}
+
+// Agents come and go without a call of the mod's own: the list is the truth.
+export async function syncAgents($: EngineInterface): Promise<void> {
+  let agents: Awaited<ReturnType<EngineInterface['agent']['list']>>
+
+  try {
+    agents = await $.agent.list()
+  } catch {
+    // A host that keeps no agents: nothing to follow.
+    return
+  }
+
+  const active = agents.filter(agent => ACTIVE.includes(agent.status))
+  const known = await read($, watched)
+
+  for (const agent of active) {
+    if (!known.some(w => w.id === agent.id)) {
+      await follow($, {
+        kind: 'agent',
+        id: agent.id,
+        label: agent.description || agent.type,
+        command: '',
+        outputPath: null,
+      })
+    }
+  }
+
+  for (const gone of known.filter(w => w.kind === 'agent' && !active.some(agent => agent.id === w.id))) {
+    const last = agents.find(agent => agent.id === gone.id)?.status
+
+    await finish($, gone.id, last === 'failed' || last === 'killed' ? last : 'finished')
+  }
+}
+
+async function gather($: EngineInterface, work: Watched, now: number, durations: Durations): Promise<Facts> {
+  const facts: Facts = {
+    watched: work,
+    elapsedMs: now - work.startedAt,
+    usualMs: work.kind === 'command' ? usual(durations, work.command) : null,
+    silentMs: null,
+    last: '',
+  }
+
+  try {
+    if (work.kind === 'agent') {
+      const messages = await $.session.messages({ agentId: work.id })
+
+      if (Array.isArray(messages)) {
+        const spoken = [...messages].reverse().find(m => m.role === 'assistant' && m.text.trim())
+
+        facts.last = tail(spoken?.text ?? '', 800)
+      }
+    } else if (work.outputPath) {
+      const stat = await $.fs.stat(work.outputPath)
+
+      facts.silentMs = Math.max(0, now - stat.mtimeMs)
+      facts.last =
+        stat.size <= READ_LIMIT ? tail(await $.fs.read(work.outputPath), 2500) : '(output too large to read)'
+    }
+  } catch {
+    // An output file not written yet, or a conversation not readable: the
+    // watcher judges by the time alone.
+  }
+
+  return facts
+}
+
+// One look at the work: the line rewritten, the main model woken if need be.
+export async function check($: EngineInterface, settings: Settings): Promise<void> {
+  await syncAgents($)
+
+  const now = await $.clock.now()
+  const list = await read($, watched)
+
+  if (list.length === 0) {
+    await update($, line, held => (held && now - held.at >= LINGER_MS ? null : held))
+
+    return
+  }
+
+  const durations = await durationsOf($)
+  const facts: Facts[] = []
+
+  for (const work of list) {
+    facts.push(await gather($, work, now, durations))
+  }
+
+  // Before the person has typed anything since the mod loaded, their last
+  // message in the transcript says which language they read.
+  if ((await read($, sample)) === '') {
+    try {
+      const rows = await $.session.messages()
+      const own = [...rows].reverse().find(row => row.role === 'user' && isOwnWords(row.text))
+
+      if (own) {
+        await update($, sample, () => sampleOf(own.text))
+      }
+    } catch {
+      // No transcript to read: the watcher writes in English.
+    }
+  }
+
+  let report: ReturnType<typeof parseReport> = null
+
+  try {
+    const reply = await $.model.complete({
+      model: settings.model,
+      system: systemPrompt(settings.language, await read($, sample)),
+      prompt: facts.map(describe).join('\n\n---\n\n'),
+      maxTokens: 300,
+    })
+
+    report = reply.isAnswered ? parseReport(reply.text) : null
+
+    if (report === null) {
+      $.ui.log(`task-watch: no report from ${settings.model}: ${reply.isAnswered ? 'an answer of another shape' : reply.reason}`, {
+        to: 'debug',
+      })
+    }
+  } catch (error) {
+    // A model the engine refuses to call: the line falls back to the bare facts.
+    $.ui.log(`task-watch: ${settings.model} was not asked: ${error instanceof Error ? error.message : String(error)}`, {
+      to: 'debug',
+    })
+  }
+
+  const stalled = facts.filter(f => isStalled(f, settings.stallMs))
+  const longest = facts.reduce((a, b) => (b.elapsedMs > a.elapsedMs ? b : a))
+  const isWrong = report?.verdict === 'suspect' || stalled.length > 0
+  const why =
+    stalled.length > 0
+      ? `no output for ${formatSpan(stalled[0]!.silentMs ?? 0)}`
+      : (report?.reason ?? '')
+  // The watcher's words, or the bare facts where it gave none.
+  const status = report?.status ?? `${list.length} in the background · longest ${formatSpan(longest.elapsedMs)}`
+  const written: Line = {
+    text: `${status}${isWrong && why ? ` — ${why}` : ''}`,
+    level: isWrong ? 'warn' : 'info',
+    at: now,
+  }
+
+  await update($, line, () => written)
+
+  const subject = stalled[0] ?? longest
+
+  if (isWrong && settings.wake && mayAlert(subject.watched, now, settings.intervalMs)) {
+    await update($, watched, all => all.map(w => (w.id === subject.watched.id ? { ...w, alertedAt: now } : w)))
+    // A turn of its own once the session is idle; not awaited, as it resolves
+    // only when that turn starts.
+    void $.prompt.submit({ text: wakeText(subject, why || 'the watcher found it suspicious') })
+  }
+}
+
+export async function clearStale($: EngineInterface): Promise<void> {
+  const now = await $.clock.now()
+  const isIdle = (await read($, watched)).length === 0
+
+  await update($, line, held => (isIdle && held && now - held.at >= LINGER_MS ? null : held))
+}
+
+// A look that is still under way is not overtaken by the next one.
+let isLooking = false
+
+// One guarded look: what the timer runs, and what runs soon after work starts.
+export async function look($: EngineInterface, settings: Settings): Promise<void> {
+  if (isLooking) {
+    return
+  }
+
+  isLooking = true
+
+  try {
+    await check($, settings)
+  } catch (error) {
+    // A failed look leaves the line as it was; the next one tries again.
+    const said = error instanceof Error ? error.message : String(error)
+
+    $.ui.log(`task-watch: a look at the work failed: ${said}`, { to: 'debug' })
+  } finally {
+    isLooking = false
+  }
+}
+
+// The person's own message, kept as the sample of the language to write in.
+export async function remember($: EngineInterface, text: string): Promise<void> {
+  await update($, sample, () => text)
+}

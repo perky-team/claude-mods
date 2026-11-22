@@ -10,6 +10,6 @@ export type Snapshot = {
 
 declare module 'claude-code' {
   interface PluginState {
-    'usage-band': { snapshot: Snapshot | null; tick: number; agents: number }
+    'usage-band': { snapshot: Snapshot | null; tick: number; agents: number; commands: string[] }
   }
 }

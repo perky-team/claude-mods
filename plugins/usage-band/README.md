@@ -2,7 +2,7 @@
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue) ![Claude Code 2.1.319+](https://img.shields.io/badge/Claude%20Code-2.1.319%2B-d97757)
 
-A Claude Code mod that draws one row above the prompt, so the figures that decide how you spend a session are always in view: how full the context is, how much of each rate limit is used, whether you are spending faster than the limit refills, and how long until it resets.
+A Claude Code mod that draws one row above the prompt, so the figures that decide how you spend a session are always in view: how full the context is, how much of each rate limit is used, whether you are spending faster than the limit refills, how long until it resets, and what is still running in the background.
 
 ![The usage band](docs/band.svg)
 
@@ -29,8 +29,9 @@ From left to right:
 | Weekly pace | Use against an even plan for the week |
 | Weekly time left | Days, hours and minutes until the week resets: `2:07:15` |
 | Agents | How many subagents and teammates are still at work |
+| Commands | How many commands the session sent to the background are still running |
 
-In Claude Code Desktop, rest the pointer on a part of the row to read its exact figure: `Context 38%`, `5-hour limit 46% · resets 22:40 22.11`, `Weekly limit 61% · resets 07:00 25.11`, `Agents at work: 0`. The reset is given as the local time and date.
+In Claude Code Desktop, rest the pointer on a part of the row to read its exact figure: `Context 38%`, `5-hour limit 46% · resets 22:40 22.11`, `Weekly limit 61% · resets 07:00 25.11`, `Agents at work: 0`, `Background commands: 0`. The reset is given as the local time and date.
 
 ### Colors
 
@@ -42,7 +43,7 @@ In Claude Code Desktop, rest the pointer on a part of the row to read its exact 
 
 The time left is colored in proportion, with no steps: every shade between the three stands for a share of the window still ahead.
 
-The agents mark is grey at zero and blue while any agent works.
+The agents mark, a robot head, and the commands mark, a terminal window, are grey at zero and blue while any is at work. A `sleep` the session starts as a pacing timer is not counted as a command.
 
 ### Pace
 
@@ -62,9 +63,9 @@ Spending too fast. The 5-hour limit is at 92% with an hour and a half to go, and
 
 ![High use, ahead of the plan](docs/state-fast.svg)
 
-Near the reset, agents at work. The weekly limit is almost used up, but it resets in five hours and the pace is on the plan; three agents are still spending in the background.
+Near the reset, work in the background. The weekly limit is almost used up, but it resets in five hours and the pace is on the plan; three agents and one command are still running.
 
-![Near the reset, three agents at work](docs/state-agents.svg)
+![Near the reset, three agents and one command at work](docs/state-agents.svg)
 
 ## Install
 
@@ -127,6 +128,7 @@ Requires Claude Code 2.1.319 or later.
 - A window whose reset has passed is drawn empty, with no pace and no time left, until the next response brings a new reading.
 - In the first minutes of a new 5-hour window the pace swings widely: a few points of use against almost no time passed.
 - Per-model limits are not reported to mods, so none is shown.
+- A background command is counted from its start to the engine's notice that it ended. A session resumed after its commands died may keep counting them until it is cleared.
 - A bar with 1% to 8% used draws at the same short width: a narrower fill would not keep its round caps.
 
 The row is redrawn after every turn and once a minute.

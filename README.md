@@ -10,7 +10,8 @@ This repository is a plugin marketplace: add it once, then install any mod from 
 
 | Mod | What it does |
 | --- | --- |
-| [usage-band](plugins/usage-band) | A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and a count of the agents at work |
+| [usage-band](plugins/usage-band) | A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and counts of the agents and background commands at work |
+| [task-watch](plugins/task-watch) | Watches background commands and agents: a one-line status above the prompt every few minutes, written by a small model, and a wake-up for the main model when the work looks stuck or wrong |
 
 ![The usage band](plugins/usage-band/docs/band.svg)
 
@@ -21,6 +22,7 @@ Add the marketplace, then install a mod from it. From a shell:
 ```
 claude plugin marketplace add perky-team/claude-mods
 claude plugin install usage-band@perky-team
+claude plugin install task-watch@perky-team
 ```
 
 Or at the prompt of a terminal session:

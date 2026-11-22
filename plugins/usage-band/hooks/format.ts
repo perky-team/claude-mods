@@ -162,3 +162,11 @@ export const countActive = (agents: readonly { status: string }[]): number =>
 // Written at zero too, so the line keeps its shape when agents come and go.
 // The glyph stands for the agent where no picture draws one.
 export const formatAgents = (count: number): string => `◉ ${count}`
+
+export const formatCommands = (count: number): string => `▣ ${count}`
+
+// A timer the session starts for its own pacing is not work in the background.
+export const isTimer = (command: string): boolean => /^\s*sleep\s+[\d.]+[smhd]?\s*$/.test(command)
+
+// The id of the background task a notification of the engine's reports ended.
+export const endedTask = (text: string): string | null => /<task-id>([^<]+)<\/task-id>/.exec(text)?.[1]?.trim() ?? null

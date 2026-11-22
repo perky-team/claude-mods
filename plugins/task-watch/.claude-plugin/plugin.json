@@ -1,0 +1,43 @@
+{
+  "name": "task-watch",
+  "version": "1.0.0",
+  "description": "Watches background commands and agents: a one-line status above the prompt every few minutes, written by a small model, and a wake-up for the main model when the work looks stuck or wrong",
+  "author": {
+    "name": "perky-team"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/perky-team/claude-mods",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "intervalMinutes": {
+      "type": "number",
+      "title": "Check every (minutes)",
+      "description": "How often the background work is looked at and the status line rewritten",
+      "default": 5
+    },
+    "model": {
+      "type": "string",
+      "title": "Watcher model",
+      "description": "The model that writes the status line and judges the work: an alias such as haiku, or a full model id",
+      "default": "haiku"
+    },
+    "stallMinutes": {
+      "type": "number",
+      "title": "Silence that counts as stuck (minutes)",
+      "description": "A background command whose output has not changed for this long wakes the main model, whatever the watcher says",
+      "default": 10
+    },
+    "language": {
+      "type": "string",
+      "title": "Status language",
+      "description": "The language the status line is written in: auto follows the language of your own messages in the session, or name one, such as English",
+      "default": "auto"
+    },
+    "wake": {
+      "type": "boolean",
+      "title": "Wake the main model",
+      "description": "Send the main model a message when the work looks stuck or wrong; off, the warning stays in the status line alone",
+      "default": true
+    }
+  }
+}

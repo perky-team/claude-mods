@@ -1,7 +1,7 @@
 {
   "name": "usage-band",
-  "version": "1.1.0",
-  "description": "A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and a count of the agents at work",
+  "version": "1.2.0",
+  "description": "A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and counts of the agents and background commands at work",
   "author": { "name": "perky-team" },
   "license": "MIT",
   "repository": "https://github.com/perky-team/claude-mods",

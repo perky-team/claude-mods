@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { AgentInfo } from 'claude-code'
 
 import { barsSvg, leftColor, textWidth } from './svg'
-import { barColor, filledCells, formatFable, formatPace, formatReset, toSnapshot, paceColor, weeklyPace, windowElapsed, formatLeftDays, formatLeftHours, leftShare, live, windowPace, countActive, formatAgents, FIVE_HOURS_MS } from './format'
+import { barColor, filledCells, formatFable, formatPace, formatReset, toSnapshot, paceColor, weeklyPace, windowElapsed, formatLeftDays, formatLeftHours, leftShare, live, windowPace, countActive, formatAgents, formatCommands, isTimer, endedTask, FIVE_HOURS_MS } from './format'
 
 const BAND = {
   plugin: 'usage-band',
@@ -86,7 +86,7 @@ test('the band draws three meters and the pace, on both surfaces', async ($, on)
   // The clock stands 3 days 12 hours before the weekly reset, and 21 h 40 min
   // before the five-hour one.
   expect((await terminal.find({ type: 'Text', text: /▲/ }))?.text).toBe(
-    '████░░░░░░  ·  ███░░░░░░░ ▲ +31% 21:40  ·  █████████░ ▲ +37% 3:12:00  ·  ◉ 0',
+    '████░░░░░░  ·  ███░░░░░░░ ▲ +31% 21:40  ·  █████████░ ▲ +37% 3:12:00  ·  ◉ 0  ·  ▣ 0',
   )
   await terminal.unmount()
 
@@ -142,7 +142,7 @@ test('a Fable window, where one is reported, is written f15%', async ($, on) => 
   await $.session.measure({ context: { window: 200000 }, rateLimits: windows, changed: ['rateLimits'] })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /f15%/ }))?.text.endsWith('  ·  ◉ 0  ·  f15%')).toBe(true)
+  expect((await ui.find({ type: 'Text', text: /f15%/ }))?.text.endsWith('  ·  ◉ 0  ·  ▣ 0  ·  f15%')).toBe(true)
   await ui.unmount()
 })
 
@@ -233,7 +233,7 @@ test('figures the engine does not have yet show as a dash', async ($, on) => {
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
 
-  expect((await ui.find({ type: 'Text', text: /░/ }))?.text).toBe('░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 0')
+  expect((await ui.find({ type: 'Text', text: /░/ }))?.text).toBe('░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 0  ·  ▣ 0')
   await ui.unmount()
 })
 
@@ -254,10 +254,10 @@ test('the time left moves by itself, once a minute', async ($, on) => {
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /02:00/ }))?.text).toBe('████░░░░░░  ·  ███░░░░░░░ ▼ −29% 02:00  ·  ░░░░░░░░░░  ·  ◉ 0')
+  expect((await ui.find({ type: 'Text', text: /02:00/ }))?.text).toBe('████░░░░░░  ·  ███░░░░░░░ ▼ −29% 02:00  ·  ░░░░░░░░░░  ·  ◉ 0  ·  ▣ 0')
 
   await clock.advance(60 * 1000)
-  expect((await ui.find({ type: 'Text', text: /01:59/ }))?.text).toBe('████░░░░░░  ·  ███░░░░░░░ ▼ −29% 01:59  ·  ░░░░░░░░░░  ·  ◉ 0')
+  expect((await ui.find({ type: 'Text', text: /01:59/ }))?.text).toBe('████░░░░░░  ·  ███░░░░░░░ ▼ −29% 01:59  ·  ░░░░░░░░░░  ·  ◉ 0  ·  ▣ 0')
   await ui.unmount()
 })
 
@@ -278,7 +278,7 @@ test('a window whose reset has passed draws empty, with no time and no pace', as
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /·/ }))?.text).toBe(
-    '████░░░░░░  ·  ░░░░░░░░░░  ·  █████████░ ▼ −12% 0:01:00  ·  ◉ 0',
+    '████░░░░░░  ·  ░░░░░░░░░░  ·  █████████░ ▼ −12% 0:01:00  ·  ◉ 0  ·  ▣ 0',
   )
 
   await ui.unmount()
@@ -286,7 +286,7 @@ test('a window whose reset has passed draws empty, with no time and no pace', as
   // No session started here, so no minute timer runs: a new drawing reads the clock.
   await clock.advance(2 * 60 * 60 * 1000)
   const later = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await later.find({ type: 'Text', text: /·/ }))?.text).toBe('████░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 0')
+  expect((await later.find({ type: 'Text', text: /·/ }))?.text).toBe('████░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 0  ·  ▣ 0')
   await later.unmount()
 })
 
@@ -315,12 +315,12 @@ test('agents still at work are counted at the end of the line', async ($, on) =>
   await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /█/ }))?.text).toBe('████░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 2')
+  expect((await ui.find({ type: 'Text', text: /█/ }))?.text).toBe('████░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 2  ·  ▣ 0')
 
   // Both finish: the minute timer counts again and the note reads zero.
   list = list.map(agent => ({ ...agent, status: 'completed' }))
   await clock.advance(60 * 1000)
-  expect((await ui.find({ type: 'Text', text: /█/ }))?.text).toBe('████░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 0')
+  expect((await ui.find({ type: 'Text', text: /█/ }))?.text).toBe('████░░░░░░  ·  ░░░░░░░░░░  ·  ░░░░░░░░░░  ·  ◉ 0  ·  ▣ 0')
   await ui.unmount()
 
   // The picture draws the agent mark itself and writes only the number.
@@ -349,4 +349,56 @@ test('each part of the picture tells its figure to a resting pointer', async () 
 
   // A part with no title is drawn bare.
   expect(barsSvg([{ percent: 1, left: '', leftShare: null, pace: null }]).source.includes('<title>')).toBe(false)
+})
+
+test('commands in the background are counted until the engine reports them ended', async ($, on) => {
+  expect(formatCommands(2)).toBe('▣ 2')
+  expect(isTimer('sleep 290')).toBe(true)
+  expect(isTimer('sleep 5 && make')).toBe(false)
+  expect(endedTask('<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>')).toBe('b1')
+  expect(endedTask('hello')).toBe(null)
+
+  mock.clock(on)
+  on('session.measure', (_, e) => ({ changed: e.changed }))
+  on('prompt.submit', (_, e) => ({ text: e.text }))
+  on('tool.call', (_, e) =>
+    e.tool === 'Bash'
+      ? { result: { stdout: '', stderr: '', interrupted: false, backgroundTaskId: `b-${String(e.command).length}` } }
+      : { result: {} },
+  )
+
+  await $.session.measure({ context: { window: 200000, percent: 42 }, rateLimits: [], changed: ['context'] })
+
+  const shown = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const text = (await ui.find({ type: 'Text', text: /█/ }))?.text
+    await ui.unmount()
+
+    return text
+  }
+
+  expect((await shown())?.endsWith('◉ 0  ·  ▣ 0')).toBe(true)
+
+  // A pacing timer is not counted; two builds are.
+  await $.tool.call({ tool: 'Bash', command: 'sleep 290', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'make', run_in_background: true })
+  await $.tool.call({ tool: 'Bash', command: 'make all', run_in_background: true })
+  expect((await shown())?.endsWith('◉ 0  ·  ▣ 2')).toBe(true)
+
+  // One is reported ended, the other is stopped.
+  await $.prompt.submit({
+    text: '<task-notification>\n<task-id>b-4</task-id>\n<status>completed</status>',
+    origin: { kind: 'task-notification' },
+    wait: false,
+  })
+  expect((await shown())?.endsWith('◉ 0  ·  ▣ 1')).toBe(true)
+  await $.tool.call({ tool: 'TaskStop', task_id: 'b-8' })
+  expect((await shown())?.endsWith('◉ 0  ·  ▣ 0')).toBe(true)
+
+  const picture = barsSvg(
+    [{ percent: 1, left: '', leftShare: null, pace: null }],
+    [{ text: '1', color: '#60a5fa', icon: 'commands', title: 'Background commands: 1' }],
+  )
+  expect(picture.source.includes('<title>Background commands: 1</title>')).toBe(true)
+  expect(picture.source.includes('<polyline')).toBe(true)
 })
