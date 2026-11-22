@@ -1,0 +1,14 @@
+{
+  "name": "perky-team",
+  "owner": { "name": "perky-team" },
+  "metadata": {
+    "description": "Mods for Claude Code by perky-team"
+  },
+  "plugins": [
+    {
+      "name": "usage-band",
+      "source": "./plugins/usage-band",
+      "description": "A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and a count of the agents at work"
+    }
+  ]
+}
