@@ -20,6 +20,8 @@ export type Watched = {
   ackedAt?: number
   // When its output last changed, as the last look saw it; 0 or absent for unknown.
   outputAt?: number
+  // A short name in the person's language, from the watcher model; absent until it named one.
+  title?: string
 }
 
 // The row above the prompt.

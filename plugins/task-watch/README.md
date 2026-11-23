@@ -65,7 +65,7 @@ What the mod follows:
 
 How the watcher knows what is normal:
 
-- **Earlier runs.** The mod records how long each command took when it finished well, and keeps the last five runs. The record is shared by all your sessions. Commands are compared with their numbers left out, so `npm test 1` and `npm test 2` count as one.
+- **Earlier runs.** The mod records how long each command took when it finished well, and keeps the last five runs. The record is shared by all your sessions. A command that ran before is compared with its own runs; one that never did, with similar commands whose numbers alone differ, and the watcher is told that their size may differ.
 - **The output itself.** Errors, a step that repeats, a retry loop: the watcher reads the end of the output and judges it.
 - **Silence.** Whatever the watcher says, a task whose output has not changed for the stall time wakes the main model.
 
@@ -158,7 +158,7 @@ Requires Claude Code 2.1.319 or later.
 
 - The watcher sees the facts the mod collects, not the whole session. It can raise a false alarm, which costs one turn of the main model, or miss a problem; the stall time is the backstop.
 - A first run has no record to compare with: "longer than usual" starts with the second.
-- A number in a command that changes how much work it does (`build --shards 42`) is left out of the comparison, so its usual time can mislead.
+- The first run of a command is compared with similar commands whose numbers differ (`build --shards 42` with `build --shards 8`); from its second run on, with its own.
 - A task that is quiet for a long time by design, such as a big download with no progress output, still looks stuck once. The main model can then call it fine with `acknowledge`; raise the stall time if such work is common.
 - The wake-up starts a turn once the session is idle. If the main model is in the middle of a long turn of its own, the message waits for that turn to end.
 - Commands started by a subagent are not followed, only the main session's own.
@@ -174,14 +174,16 @@ Requires Claude Code 2.1.319 or later.
 - The band above the prompt can be collapsed: click `[-]` beside it, or press ctrl+x ctrl+a.
 - Only commands run with the Bash tool in the background are followed; a plain `sleep` is not.
 
-**The row shows the bare facts, such as `1 in the background · longest 6m 12s`.**
+**The row shows the bare facts, such as `⏳ 1 · 6m 12s`.**
 
 - The watcher model did not answer, or answered in another shape. Run the session with `claude --debug` to read why: the mod writes the reason to the debug log.
 - Check the model named in the options: an alias your account cannot use is refused.
 
 **The line is in the wrong language.**
 
-- With `auto`, the language is taken from your last message in the session. Set the option to a language by name to fix it.
+- With `auto`, the language is taken from your last own message in the session, its quotes, code and links left out; in a new session, from the last one before.
+- Until the first look, twenty seconds after the work starts, the row shows the name the session gave the work, which may be in English. After it, the watcher's own name for it, in your language.
+- Set the option to a language by name to fix it for good.
 
 ## Development
 
