@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are recorded here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 1.3.0 - 2026-11-23
+
+- A light app: under a light color scheme the picture switches every color to a darker twin, at least 3:1 against both a white and a dark ground, so the row reads on a light theme too. Under a dark one it is drawn as before.
+
 ## 1.2.1 - 2026-11-23
 
 - Removed the per-model weekly note (`f15%`): the engine reports no per-model limits to mods, so it never showed.
