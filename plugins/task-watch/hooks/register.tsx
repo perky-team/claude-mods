@@ -1,8 +1,8 @@
 import { atom, read } from 'claude-code'
 import type { Register } from 'claude-code'
 
-import { FIRST_LOOK_MS, formatStamp, isTimer, notified, outputPathIn, readSettings, sampleOf } from './logic'
-import { LINGER_MS, clearStale, finish, follow, look, remember, syncAgents } from './watch'
+import { ACK_TOOL, FIRST_LOOK_MS, formatStamp, isTimer, notified, outputPathIn, readSettings, sampleOf } from './logic'
+import { LINGER_MS, acknowledge, clearStale, finish, follow, look, remember, syncAgents } from './watch'
 
 // The same value `watch.ts` writes: an atom is named where it is read.
 const line = atom({ plugin: 'task-watch', key: 'line' } as const, null)
@@ -23,7 +23,26 @@ export const register: Register = (on, options) => {
     ticking?.cancel()
     ticking = $.clock.every(settings.intervalMs, () => look($, settings))
 
+    // The main model's way to answer a wake-up: the work is fine.
+    await $.tool.register({
+      name: ACK_TOOL,
+      description:
+        'Tell task-watch that a background command or agent it warned you about is fine: a server or watcher meant to keep running, or slow but healthy work. task-watch then stops raising it until its output shows something new. Use it instead of moving the work out of the session.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          id: { type: 'string', description: 'The id task-watch gave for the work' },
+          service: { type: 'boolean', description: 'True when the work is meant to keep running until stopped' },
+        },
+        required: ['id'],
+      },
+    })
+
     return result
+  })
+
+  on('tool.run', { tool: 'mcp__task-watch__acknowledge' }, async ($, e) => {
+    return { result: await acknowledge($, e.id, e.service === true) }
   })
 
   // A command sent to the background is followed from the answer that says so.

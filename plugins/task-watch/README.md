@@ -48,9 +48,12 @@ a command goes to the background, or an agent starts
         ├─ the watcher model ──► one line of status in the row
         │                   └──► a verdict: ok, or suspect with a reason
         │
-        └─ suspect, or the output silent for 10 minutes
+        └─ suspect, or a task's output silent for 10 minutes
                   ──► the row turns into a warning
-                  ──► the main model gets a message with the facts and takes a turn
+                  ──► the main model gets a message with the facts and takes a turn,
+                      once for this state of the work
+                  ──► fine after all? the main model calls `acknowledge`,
+                      and the watch stays quiet until the output moves again
         │
    the work ends ──► the row says how long it took, then goes
 ```
@@ -64,9 +67,23 @@ How the watcher knows what is normal:
 
 - **Earlier runs.** The mod records how long each command took when it finished well, and keeps the last five runs. The record is shared by all your sessions. Commands are compared with their numbers left out, so `npm test 1` and `npm test 2` count as one.
 - **The output itself.** Errors, a step that repeats, a retry loop: the watcher reads the end of the output and judges it.
-- **Silence.** Whatever the watcher says, a command whose output has not changed for the stall time wakes the main model.
+- **Silence.** Whatever the watcher says, a task whose output has not changed for the stall time wakes the main model.
 
-The main model is woken over one piece of work at most once in three looks.
+### Tasks and services
+
+Some work should end: a build, a test run, a deploy. Some is meant to keep running until it is stopped, and to be quiet while nothing happens: a dev server, a file watcher, a log follower. The watch tells them apart by the command (`vite`, `npm run dev`, `next dev`, `uvicorn`, `--watch`, `tail -f`, `docker compose up` without `-d`, and the like), and the watcher model can name a service the command did not give away.
+
+A service is never raised for silence, only for errors in its output. While its output does not move, the watcher model is not asked about it at all, and the row shows its name and how long it runs:
+
+```
+▸ 23.11 15:50 · Vite dev server · 1h 20m
+```
+
+### One wake-up, and an answer back
+
+The main model is woken over a piece of work once for one state of it: not again until its output has changed since.
+
+When it finds the work fine, it answers the watch with the `acknowledge` tool (`mcp__task-watch__acknowledge`, with the work's id), and the watch stays quiet about it until its output shows something new. The wake-up names the tool, so the model needs nothing more to use it.
 
 ## Install
 
@@ -110,7 +127,7 @@ Set them on the screen the install shows, or later in the plugin's configuration
 
 ## What it costs
 
-Every look is one request to the watcher model: a few thousand input tokens at most, and a reply capped at 300. With the defaults that is twelve small requests an hour, and only while something runs in the background. They are billed to the session's own credentials and count toward the same limits as the rest of your use.
+Every look is one request to the watcher model: a few thousand input tokens at most, and a reply capped at 300. With the defaults that is twelve small requests an hour while a task or an agent runs, and none for a service whose output does not move. They are billed to the session's own credentials and count toward the same limits as the rest of your use.
 
 A wake-up costs a turn of the main model. It happens only on a warning.
 
@@ -142,7 +159,7 @@ Requires Claude Code 2.1.319 or later.
 - The watcher sees the facts the mod collects, not the whole session. It can raise a false alarm, which costs one turn of the main model, or miss a problem; the stall time is the backstop.
 - A first run has no record to compare with: "longer than usual" starts with the second.
 - A number in a command that changes how much work it does (`build --shards 42`) is left out of the comparison, so its usual time can mislead.
-- Work that is quiet for a long time by design, such as a big download with no progress output, looks stuck. Raise the stall time for such work.
+- A task that is quiet for a long time by design, such as a big download with no progress output, still looks stuck once. The main model can then call it fine with `acknowledge`; raise the stall time if such work is common.
 - The wake-up starts a turn once the session is idle. If the main model is in the middle of a long turn of its own, the message waits for that turn to end.
 - Commands started by a subagent are not followed, only the main session's own.
 - An output file past one megabyte is judged by its age alone: its end is not read.

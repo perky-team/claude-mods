@@ -13,6 +13,13 @@ export type Watched = {
   outputPath: string | null
   // When the main model was last woken over it; 0 for never.
   alertedAt: number
+  // Meant to keep running (a dev server, a watcher): silence is no alarm.
+  // Absent in work followed before 1.1.0.
+  service?: boolean
+  // When the main model said it is fine; 0 or absent for never.
+  ackedAt?: number
+  // When its output last changed, as the last look saw it; 0 or absent for unknown.
+  outputAt?: number
 }
 
 // The row above the prompt.
@@ -24,6 +31,11 @@ export type Line = {
 }
 
 declare module 'claude-code' {
+  // The tool this mod gives the model, so its calls are typed.
+  interface McpToolInputs {
+    'mcp__task-watch__acknowledge': { id: string; service?: boolean }
+  }
+
   interface PluginState {
     'task-watch': { watched: Watched[]; line: Line | null; sample: string }
   }

@@ -10,8 +10,11 @@ import {
   describe,
   formatSpan,
   isOwnWords,
+  isService,
   isStalled,
   mayAlert,
+  needsWatcher,
+  outputAt,
   parseReport,
   sampleOf,
   systemPrompt,
@@ -40,7 +43,7 @@ async function durationsOf($: EngineInterface): Promise<Durations> {
 
 export async function follow($: EngineInterface, work: Omit<Watched, 'startedAt' | 'alertedAt'>): Promise<void> {
   const now = await $.clock.now()
-  const entry: Watched = { ...work, startedAt: now, alertedAt: 0 }
+  const entry: Watched = { ...work, startedAt: now, alertedAt: 0, ackedAt: 0, outputAt: 0 }
 
   await update($, watched, list => (list.some(w => w.id === entry.id) ? list : [...list, entry]))
   // A warning already on the line is not written over by a start.
@@ -177,39 +180,69 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
     }
   }
 
+  // A service whose output has not moved since the last look gives the
+  // watcher nothing to read: it is not asked about it.
+  const asked = facts.filter(f => needsWatcher(f, now))
   let report: ReturnType<typeof parseReport> = null
 
-  try {
-    const reply = await $.model.complete({
-      model: settings.model,
-      system: systemPrompt(settings.language, await read($, sample)),
-      prompt: facts.map(describe).join('\n\n---\n\n'),
-      maxTokens: 300,
-    })
+  if (asked.length > 0) {
+    try {
+      const reply = await $.model.complete({
+        model: settings.model,
+        system: systemPrompt(settings.language, await read($, sample)),
+        prompt: asked.map(describe).join('\n\n---\n\n'),
+        maxTokens: 300,
+      })
 
-    report = reply.isAnswered ? parseReport(reply.text) : null
+      report = reply.isAnswered ? parseReport(reply.text) : null
 
-    if (report === null) {
-      $.ui.log(`task-watch: no report from ${settings.model}: ${reply.isAnswered ? 'an answer of another shape' : reply.reason}`, {
+      if (report === null) {
+        $.ui.log(`task-watch: no report from ${settings.model}: ${reply.isAnswered ? 'an answer of another shape' : reply.reason}`, {
+          to: 'debug',
+        })
+      }
+    } catch (error) {
+      // A model the engine refuses to call: the line falls back to the bare facts.
+      $.ui.log(`task-watch: ${settings.model} was not asked: ${error instanceof Error ? error.message : String(error)}`, {
         to: 'debug',
       })
     }
-  } catch (error) {
-    // A model the engine refuses to call: the line falls back to the bare facts.
-    $.ui.log(`task-watch: ${settings.model} was not asked: ${error instanceof Error ? error.message : String(error)}`, {
-      to: 'debug',
-    })
   }
 
-  const stalled = facts.filter(f => isStalled(f, settings.stallMs))
-  const longest = facts.reduce((a, b) => (b.elapsedMs > a.elapsedMs ? b : a))
-  const isWrong = report?.verdict === 'suspect' || stalled.length > 0
+  // What this look learned: which work is a service, and when each output moved.
+  const services = new Set(report?.services ?? [])
+
+  await update($, watched, all =>
+    all.map(w => {
+      const seen = facts.find(f => f.watched.id === w.id)
+      const changedAt = seen ? outputAt(seen, now) : null
+
+      return { ...w, service: w.service === true || services.has(w.id), outputAt: changedAt ?? w.outputAt ?? 0 }
+    }),
+  )
+
+  const known = await read($, watched)
+  const current = (f: Facts): Facts => ({ ...f, watched: known.find(w => w.id === f.watched.id) ?? f.watched })
+  const looked = facts.map(current)
+  const stalled = looked.filter(f => isStalled(f, settings.stallMs))
+  const longest = looked.reduce((a, b) => (b.elapsedMs > a.elapsedMs ? b : a))
+  const suspect = report?.verdict === 'suspect' ? (looked.find(f => f.watched.id === report?.subject) ?? longest) : null
+  const subject = stalled[0] ?? suspect
   const why =
     stalled.length > 0
       ? `no output for ${formatSpan(stalled[0]!.silentMs ?? 0)}`
       : (report?.reason ?? '')
-  // The watcher's words, or the bare facts where it gave none.
-  const status = report?.status ?? `${list.length} in the background · longest ${formatSpan(longest.elapsedMs)}`
+  // Work the main model said is fine stays quiet until its output moves again.
+  const ackedAt = subject?.watched.ackedAt ?? 0
+  const changedAt = subject ? outputAt(subject, now) : null
+  const isAccepted = ackedAt > 0 && !(changedAt !== null && changedAt > ackedAt)
+  const isWrong = subject !== null && !isAccepted
+  // The watcher's words; for a quiet service, its name and how long it runs.
+  const status =
+    report?.status ??
+    (looked.every(f => isService(f.watched))
+      ? looked.map(f => `${f.watched.label} · ${formatSpan(f.elapsedMs)}`).join(' · ')
+      : `${list.length} in the background · longest ${formatSpan(longest.elapsedMs)}`)
   const written: Line = {
     text: `${status}${isWrong && why ? ` — ${why}` : ''}`,
     level: isWrong ? 'warn' : 'info',
@@ -218,14 +251,32 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
 
   await update($, line, () => written)
 
-  const subject = stalled[0] ?? longest
-
-  if (isWrong && settings.wake && mayAlert(subject.watched, now, settings.intervalMs)) {
+  if (subject !== null && isWrong && settings.wake && mayAlert(subject.watched, changedAt)) {
     await update($, watched, all => all.map(w => (w.id === subject.watched.id ? { ...w, alertedAt: now } : w)))
     // A turn of its own once the session is idle; not awaited, as it resolves
     // only when that turn starts.
     void $.prompt.submit({ text: wakeText(subject, why || 'the watcher found it suspicious') })
   }
+}
+
+// The main model's word that a piece of work is fine: no more wake-ups over it
+// until its output moves. Answers what the model reads back.
+export async function acknowledge($: EngineInterface, id: string, isServiceWork: boolean): Promise<string> {
+  const now = await $.clock.now()
+  const known = (await read($, watched)).find(w => w.id === id)
+
+  if (!known) {
+    return `task-watch follows no work with id "${id}" now.`
+  }
+
+  await update($, watched, all =>
+    all.map(w => (w.id === id ? { ...w, ackedAt: now, service: w.service === true || isServiceWork } : w)),
+  )
+  const calm: Line = { text: known.label, level: 'info', at: now }
+
+  await update($, line, held => (held?.level === 'warn' ? calm : held))
+
+  return `task-watch will not raise "${known.label}" again until its output shows something new.`
 }
 
 export async function clearStale($: EngineInterface): Promise<void> {

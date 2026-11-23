@@ -25,6 +25,13 @@ export const readSettings = (options: Readonly<Record<string, unknown>>): Settin
   wake: options.wake !== false,
 })
 
+// A command meant to keep running until stopped: a dev server, a watcher, a
+// follow. Its silence is no alarm. The watcher model may also say so.
+const SERVICE =
+  /\b(vite|nodemon|http-server|live-server|uvicorn|gunicorn|hypercorn|webpack-dev-server|storybook)\b|\b(next|nuxt|astro|remix|svelte-kit|gatsby|ng) (dev|serve|start)\b|\b(npm|pnpm|yarn|bun) (run )?(dev|start|serve|watch|preview)\b|--watch\b|\bwatch\b|\bserve\b|http\.server|runserver|\bflask run\b|\brails s(erver)?\b|\btail -[fF]\b|journalctl\b.* -f\b|\bkubectl\b.*\b(logs|port-forward)\b|\bdocker(-| )compose up\b(?!.*(-d\b|--detach))/
+
+export const looksLikeService = (command: string): boolean => SERVICE.test(command)
+
 // A timer the session starts for its own pacing is not work to watch.
 export const isTimer = (command: string): boolean => /^\s*sleep\s+[\d.]+[smhd]?\s*$/.test(command)
 
@@ -118,10 +125,15 @@ export type Facts = {
   last: string
 }
 
+export const isService = (watched: { kind: string; command: string; service?: boolean }): boolean =>
+  watched.kind === 'command' && (watched.service === true || looksLikeService(watched.command))
+
 export const describe = (facts: Facts): string => {
   const { watched } = facts
   const lines = [
+    `Id: ${watched.id}`,
     `${watched.kind === 'agent' ? 'Agent' : 'Command'}: ${watched.label}`,
+    ...(isService(watched) ? ['Kind: a service, meant to keep running until stopped'] : []),
     ...(watched.kind === 'command' ? [`Command line: ${watched.command.slice(0, 300)}`] : []),
     `Running for: ${formatSpan(facts.elapsedMs)}`,
     `Usual duration of earlier runs: ${facts.usualMs === null ? 'unknown, first run on record' : formatSpan(facts.usualMs)}`,
@@ -148,14 +160,16 @@ export const systemPrompt = (language: string, sample: string): string => {
   return [
     'You watch background work for a coding assistant and report on it to the person waiting.',
     'You are given facts about each piece of work: what it is, how long it has run, how long such runs usually take, when its output last changed, and the end of its output.',
-    'Answer with one JSON object and nothing else: {"status": string, "verdict": "ok" | "suspect", "reason": string}.',
+    'Answer with one JSON object and nothing else: {"status": string, "verdict": "ok" | "suspect", "reason": string, "subject": string, "services": string[]}.',
     `"status": one line, at most 110 characters, ${tongue}: what is being done right now and how far along it is. No preamble, no quotes, no line breaks.`,
     '"verdict": "suspect" only when the facts show a problem: errors or failures in the output, the same step or retry repeating, a run far longer than usual, or output that stopped changing where it should not. Work that is simply slow, or quiet while it builds or downloads, is "ok".',
     `"reason": empty for "ok"; for "suspect" one short sentence ${tongue} naming what looks wrong.`,
+    '"subject": for "suspect", the Id of the work that looks wrong; otherwise empty.',
+    '"services": the Ids of the work meant to keep running until stopped, such as a dev server, a file watcher or a log follower. Silence or no end is normal for these: they are "suspect" only on errors in their output.',
   ].join('\n')
 }
 
-export type Report = { status: string; verdict: 'ok' | 'suspect'; reason: string }
+export type Report = { status: string; verdict: 'ok' | 'suspect'; reason: string; subject: string; services: string[] }
 
 const oneLine = (text: string, limit: number): string => {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -179,7 +193,7 @@ export const parseReport = (text: string): Report | null => {
       return null
     }
 
-    const { status, verdict, reason } = parsed as Record<string, unknown>
+    const { status, verdict, reason, subject, services } = parsed as Record<string, unknown>
 
     if (typeof status !== 'string' || !status.trim()) {
       return null
@@ -189,20 +203,45 @@ export const parseReport = (text: string): Report | null => {
       status: oneLine(status, 140),
       verdict: verdict === 'suspect' ? 'suspect' : 'ok',
       reason: typeof reason === 'string' ? oneLine(reason, 200) : '',
+      subject: typeof subject === 'string' ? subject.trim() : '',
+      services: Array.isArray(services) ? services.filter((id): id is string => typeof id === 'string') : [],
     }
   } catch {
     return null
   }
 }
 
-// A command whose output has not changed for the whole stall time, and that
-// has itself run that long.
+// A task whose output has not changed for the whole stall time, and that has
+// itself run that long. A service may be silent for as long as it likes.
 export const isStalled = (facts: Facts, stallMs: number): boolean =>
-  facts.silentMs !== null && facts.silentMs >= stallMs && facts.elapsedMs >= stallMs
+  !isService(facts.watched) && facts.silentMs !== null && facts.silentMs >= stallMs && facts.elapsedMs >= stallMs
 
-// The main model is woken over one piece of work no more often than this.
-export const mayAlert = (watched: Watched, now: number, intervalMs: number): boolean =>
-  watched.alertedAt === 0 || now - watched.alertedAt >= 3 * intervalMs
+// When the output last changed: `now` less the silence; null when unknown.
+export const outputAt = (facts: Facts, now: number): number | null => (facts.silentMs === null ? null : now - facts.silentMs)
+
+// The main model is woken over one piece of work once for one state of it: not
+// again until its output has changed since the last wake-up, and not after it
+// said the work is fine until the output has changed since then.
+export const mayAlert = (watched: Watched, changedAt: number | null): boolean => {
+  const after = Math.max(watched.alertedAt, watched.ackedAt ?? 0)
+
+  return after === 0 || (changedAt !== null && changedAt > after)
+}
+
+// Whether the watcher has anything new to read about this work since the last
+// look: any task or agent; a service only once its output has moved.
+export const needsWatcher = (facts: Facts, now: number): boolean => {
+  if (!isService(facts.watched)) {
+    return true
+  }
+
+  const changedAt = outputAt(facts, now)
+
+  return changedAt === null || changedAt > (facts.watched.outputAt ?? 0)
+}
+
+export const ACK_TOOL = 'acknowledge'
+export const ACK_TOOL_FULL = 'mcp__task-watch__acknowledge'
 
 // What the main model is told when it is woken.
 export const wakeText = (facts: Facts, why: string): string =>
@@ -213,6 +252,7 @@ export const wakeText = (facts: Facts, why: string): string =>
       (facts.silentMs === null ? '.' : `; its output last changed ${formatSpan(facts.silentMs)} ago.`),
     `Why: ${why}`,
     'Look at it now: decide whether it is stuck or failing, and wait, fix or stop it. Answer in a line or two.',
+    `If it is fine (a server or watcher meant to keep running, or slow but healthy work), call ${ACK_TOOL_FULL} with id "${facts.watched.id}" and say whether it is a service: the watch then stops raising it until its output shows something new. Do not move the work out of the session to quiet the watch.`,
   ].join('\n')
 
 export const ACTIVE: readonly string[] = ['pending', 'running', 'waiting']
