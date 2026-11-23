@@ -12,7 +12,6 @@ This repository is a plugin marketplace: add it once, then install any mod from 
 | --- | --- |
 | [usage-band](plugins/usage-band) | A row above the prompt with the context fill, the 5-hour and weekly rate limits with their pace and the time left until each resets, and counts of the agents and background commands at work |
 | [task-watch](plugins/task-watch) | Watches background commands and agents: a one-line status above the prompt every few minutes, written by a small model, and a wake-up for the main model when the work looks stuck or wrong |
-| [machine-monitor](plugins/machine-monitor) | What loads this Linux machine now, in a pane beside the chat and as a skill: load, memory, disk, temperature, job queues, and the CPU and memory of each Claude session |
 
 ![The usage band](plugins/usage-band/docs/band.svg)
 
@@ -24,7 +23,6 @@ Add the marketplace, then install a mod from it. From a shell:
 claude plugin marketplace add perky-team/claude-mods
 claude plugin install usage-band@perky-team
 claude plugin install task-watch@perky-team
-claude plugin install machine-monitor@perky-team
 ```
 
 Or at the prompt of a terminal session:
