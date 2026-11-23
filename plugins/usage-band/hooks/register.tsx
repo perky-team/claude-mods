@@ -11,7 +11,6 @@ import {
   endedTask,
   formatAgents,
   formatCommands,
-  formatFable,
   formatLeftDays,
   formatLeftHours,
   formatPace,
@@ -148,14 +147,12 @@ export const register: Register = on => {
     const now = await $.clock.now()
     const fiveHour = live(figures.fiveHour, now)
     const sevenDay = live(figures.sevenDay, now)
-    // A snapshot stored before the mod read the Fable window has no such key.
     const working = await read($, agents)
     const running = (await read($, commands)).length
     // Always there, grey at zero and blue while any works.
     const notes: Note[] = [
       { text: String(working), icon: 'agents', title: `Agents at work: ${working}`, ...(working > 0 ? { color: BLUE } : {}) },
       { text: String(running), icon: 'commands', title: `Background commands: ${running}`, ...(running > 0 ? { color: BLUE } : {}) },
-      ...(figures.fable ? [{ text: formatFable(figures.fable), title: `Fable weekly limit ${formatPercent(figures.fable.percentUsed)}` }] : []),
     ]
     const said = (name: string, limit: typeof fiveHour) =>
       `${name} ${formatPercent(limit?.percentUsed ?? null)}${limit?.resetsAt ? ` · resets ${formatReset(limit.resetsAt)}` : ''}`

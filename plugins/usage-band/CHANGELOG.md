@@ -2,6 +2,10 @@
 
 All notable changes to this plugin are recorded here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 1.2.1 - 2026-11-23
+
+- Removed the per-model weekly note (`f15%`): the engine reports no per-model limits to mods, so it never showed.
+
 ## 1.2.0 - 2026-11-23
 
 - A second counter at the end of the row: the commands the session sent to the background that are still running, beside the agents at work. Pacing timers (`sleep`) are not counted.

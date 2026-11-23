@@ -11,14 +11,10 @@ const pick = (windows: readonly Window[], isIt: (kind: string) => boolean): Limi
     : null
 }
 
-export const formatFable = (limit: Limit): string => `f${Math.round(limit.percentUsed)}%`
-
 export const toSnapshot = (figures: Figures): Snapshot => ({
   contextPercent: figures.context.percent ?? null,
   fiveHour: pick(figures.rateLimits, kind => kind === 'five_hour'),
   sevenDay: pick(figures.rateLimits, kind => kind === 'seven_day'),
-  // The weekly window of the Fable model, where the engine reports one.
-  fable: pick(figures.rateLimits, kind => /fable/i.test(kind)),
 })
 
 const two = (n: number) => String(n).padStart(2, '0')

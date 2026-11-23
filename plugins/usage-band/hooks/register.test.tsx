@@ -2,7 +2,7 @@ import { expect, mock, test } from 'claude-code/testing'
 import type { AgentInfo } from 'claude-code'
 
 import { barsSvg, leftColor, textWidth } from './svg'
-import { barColor, filledCells, formatFable, formatPace, formatReset, toSnapshot, paceColor, weeklyPace, windowElapsed, formatLeftDays, formatLeftHours, leftShare, live, windowPace, countActive, formatAgents, formatCommands, isTimer, endedTask, FIVE_HOURS_MS } from './format'
+import { barColor, filledCells, formatPace, formatReset, toSnapshot, paceColor, weeklyPace, windowElapsed, formatLeftDays, formatLeftHours, leftShare, live, windowPace, countActive, formatAgents, formatCommands, isTimer, endedTask, FIVE_HOURS_MS } from './format'
 
 const BAND = {
   plugin: 'usage-band',
@@ -123,27 +123,6 @@ test('the time left is written 04:55 and 6:12:41', async () => {
   expect(formatLeftDays(limit, reset + hour)).toBe('0:00:00')
   expect(formatLeftHours(null, reset)).toBe('')
   expect(formatLeftDays({ percentUsed: 10, resetsAt: null }, reset)).toBe('')
-})
-
-test('a Fable window, where one is reported, is written f15%', async ($, on) => {
-  const windows = [
-    { kind: 'five_hour', percentUsed: 31 },
-    { kind: 'seven_day', percentUsed: 57, resetsAt: sevenDayReset },
-    { kind: 'seven_day_fable', percentUsed: 14.6, resetsAt: sevenDayReset },
-  ]
-  const figures = toSnapshot({ context: {}, rateLimits: windows })
-
-  expect(formatFable(figures.fable!)).toBe('f15%')
-  expect(toSnapshot({ context: {}, rateLimits: windows.slice(0, 2) }).fable).toBe(null)
-  expect(barsSvg([{ percent: 1, left: '', leftShare: null, pace: null }], [{ text: 'f15%' }]).source.includes('>f15%<')).toBe(true)
-
-  mock.clock(on)
-  on('session.measure', (_, e) => ({ changed: e.changed }))
-  await $.session.measure({ context: { window: 200000 }, rateLimits: windows, changed: ['rateLimits'] })
-
-  const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /f15%/ }))?.text.endsWith('  ·  ◉ 0  ·  ▣ 0  ·  f15%')).toBe(true)
-  await ui.unmount()
 })
 
 test('the five-hour pace is the use against an even five-hour plan', async () => {

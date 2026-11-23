@@ -4,8 +4,6 @@ export type Snapshot = {
   contextPercent: number | null
   fiveHour: Limit | null
   sevenDay: Limit | null
-  // Absent in a snapshot stored before the mod read this window.
-  fable?: Limit | null
 }
 
 declare module 'claude-code' {
