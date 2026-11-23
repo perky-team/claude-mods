@@ -4,3 +4,5 @@
 *.swp
 .mcpb-cache/
 .claude-plugin/types/
+__pycache__/
+*.pyc
