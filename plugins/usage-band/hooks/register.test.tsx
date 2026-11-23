@@ -1,7 +1,7 @@
 import { expect, mock, test } from 'claude-code/testing'
 import type { AgentInfo } from 'claude-code'
 
-import { barsSvg, leftColor, textWidth } from './svg'
+import { barsSvg, leftColor, lightTwin, textWidth } from './svg'
 import { barColor, filledCells, formatPace, formatReset, toSnapshot, paceColor, weeklyPace, windowElapsed, formatLeftDays, formatLeftHours, leftShare, live, windowPace, countActive, formatAgents, formatCommands, isTimer, endedTask, FIVE_HOURS_MS } from './format'
 
 const BAND = {
@@ -182,14 +182,14 @@ test('the picture writes the time left and the pace, no percent figures', async 
 
   // The space is the same on both sides of each dot: 11 from the edge of what
   // stands before it, 11 to the bar after it.
-  const dots = [...picture.source.matchAll(/<circle cx="([\d.]+)"/g)].map(m => Number(m[1]))
-  const bars = [...picture.source.matchAll(/<rect x="([\d.]+)" y="7" width="96"/g)].map(m => Number(m[1]))
+  const dots = [...picture.source.matchAll(/<circle [^>]*?cx="([\d.]+)"/g)].map(m => Number(m[1]))
+  const bars = [...picture.source.matchAll(/<rect [^>]*?x="([\d.]+)" y="7" width="96"/g)].map(m => Number(m[1]))
   expect(bars.length).toBe(3)
   expect(Math.round((dots[0]! - (bars[0]! + 96)) * 10) / 10).toBe(11)
   expect(Math.round((bars[1]! - dots[0]!) * 10) / 10).toBe(11)
   expect(Math.round((bars[2]! - dots[1]!) * 10) / 10).toBe(11)
   // The second dot stands 11 past the end of "04:55", whose width the picture fixes.
-  const time = /<text x="([\d.]+)"[^>]*textLength="([\d.]+)"[^>]*>04:55</.exec(picture.source)!
+  const time = /<text [^>]*?x="([\d.]+)"[^>]*textLength="([\d.]+)"[^>]*>04:55</.exec(picture.source)!
   expect(Number(time[2])).toBe(textWidth('04:55'))
   expect(Math.round((dots[1]! - (Number(time[1]) + Number(time[2]))) * 10) / 10).toBe(11)
   expect(picture.source.includes('>▲ +37%<')).toBe(true)
@@ -308,7 +308,7 @@ test('agents still at work are counted at the end of the line', async ($, on) =>
     [{ text: '2', color: '#60a5fa', icon: 'agents' }],
   )
   expect(picture.source.includes('fill="#60a5fa">2<')).toBe(true)
-  expect(picture.source.includes('<rect x="119.7" y="6" width="11.6" height="10" rx="3" fill="none" stroke="#60a5fa"')).toBe(true)
+  expect(picture.source.includes('x="119.7" y="6" width="11.6" height="10" rx="3" fill="none" stroke="#60a5fa"')).toBe(true)
   expect(picture.source.includes('◉')).toBe(false)
 })
 
@@ -380,4 +380,40 @@ test('commands in the background are counted until the engine reports them ended
   )
   expect(picture.source.includes('<title>Background commands: 1</title>')).toBe(true)
   expect(picture.source.includes('<polyline')).toBe(true)
+})
+
+test('every color has a darker twin for a light app, readable on both', async () => {
+  const channel = (c: number) => {
+    const v = c / 255
+
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+  }
+  const lum = (color: string) =>
+    0.2126 * channel(parseInt(color.slice(1, 3), 16)) +
+    0.7152 * channel(parseInt(color.slice(3, 5), 16)) +
+    0.0722 * channel(parseInt(color.slice(5, 7), 16))
+  const contrast = (a: string, b: string) => (Math.max(lum(a), lum(b)) + 0.05) / (Math.min(lum(a), lum(b)) + 0.05)
+
+  expect(lightTwin('#22c55e')).toBe('#15803d')
+  expect(lightTwin('#60a5fa')).toBe('#2563eb')
+
+  // The palette and every shade of the time-left gradient: at least 3:1 on a
+  // white ground and on the dark app's ground.
+  for (const color of ['#22c55e', '#f59e0b', '#ef4444', '#8b93a1', '#60a5fa', ...[0, 0.2, 0.4, 0.5, 0.6, 0.8, 1].map(leftColor)]) {
+    const twin = lightTwin(color)
+
+    expect([color, contrast(twin, '#ffffff') >= 3]).toEqual([color, true])
+    expect([color, contrast(twin, '#1f1f1e') >= 3]).toEqual([color, true])
+  }
+
+  const picture = barsSvg(
+    [{ percent: 42, left: '04:55', leftShare: 1, pace: { expected: 40, delta: 2 } }],
+    [{ text: '0', icon: 'agents' }],
+  )
+
+  expect(picture.source.includes('@media (prefers-color-scheme: light)')).toBe(true)
+  // Each painted mark carries its twin; the unseen hit area does not.
+  expect(picture.source.includes('class="f" style="--lf:#15803d"')).toBe(true)
+  expect(picture.source.includes('class="s" style="--ls:#6b7280"')).toBe(true)
+  expect((picture.source.match(/fill="#[0-9a-f]{6}"/g) ?? []).length).toBe((picture.source.match(/--lf:/g) ?? []).length)
 })

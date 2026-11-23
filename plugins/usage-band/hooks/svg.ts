@@ -50,6 +50,69 @@ export const leftColor = (share: number): string => {
 
 const clamp = (n: number): number => Math.min(100, Math.max(0, n))
 
+// The colors above are bright, for a dark app. A light app needs them darker:
+// each paint gets a twin that reads on both, at least 3:1 against white and
+// against the dark app's ground alike, and the picture switches to the twins
+// where the surface reports a light color scheme.
+const LIGHT: Readonly<Record<string, string>> = {
+  [hex(GREEN)]: '#15803d',
+  [hex(AMBER)]: '#b45309',
+  [hex(RED)]: '#dc2626',
+  [GREY]: '#6b7280',
+  [BLUE]: '#2563eb',
+}
+
+const channel = (c: number): number => {
+  const v = c / 255
+
+  return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+}
+
+const luminance = (rgb: Rgb): number => 0.2126 * channel(rgb[0]) + 0.7152 * channel(rgb[1]) + 0.0722 * channel(rgb[2])
+
+const parse = (color: string): Rgb => [
+  parseInt(color.slice(1, 3), 16),
+  parseInt(color.slice(3, 5), 16),
+  parseInt(color.slice(5, 7), 16),
+]
+
+// The light twin of a color: its own from the table, or the color darkened
+// until its luminance is at most 0.17 (a gradient's shades between the stops).
+export const lightTwin = (color: string): string => {
+  const named = LIGHT[color.toLowerCase()]
+
+  if (named) {
+    return named
+  }
+
+  let rgb = parse(color)
+
+  for (let step = 0; step < 40 && luminance(rgb) > 0.17; step++) {
+    rgb = [rgb[0] * 0.94, rgb[1] * 0.94, rgb[2] * 0.94]
+  }
+
+  return hex(rgb)
+}
+
+// Gives every fill and stroke of six hex digits its light twin, as a custom
+// property the style below reads under a light color scheme.
+const twinned = (body: string): string =>
+  body.replace(/<[a-z]+ [^>]*>/g, tag => {
+    const fill = /\sfill="(#[0-9a-f]{6})"/.exec(tag)?.[1]
+    const stroke = /\sstroke="(#[0-9a-f]{6})"/.exec(tag)?.[1]
+
+    if (!fill && !stroke) {
+      return tag
+    }
+
+    const classes = [fill ? 'f' : '', stroke ? 's' : ''].filter(Boolean).join(' ')
+    const vars = [fill ? `--lf:${lightTwin(fill)}` : '', stroke ? `--ls:${lightTwin(stroke)}` : ''].filter(Boolean).join(';')
+
+    return tag.replace(/^<([a-z]+) /, `<$1 class="${classes}" style="${vars}" `)
+  })
+
+const STYLE = '<style>@media (prefers-color-scheme: light){.f{fill:var(--lf)}.s{stroke:var(--ls)}}</style>'
+
 const BAR = 96
 // Between the parts of one meter, and on each side of a dot.
 const INNER = 8
@@ -165,7 +228,7 @@ export const barsSvg = (
   const width = Math.ceil(x + 1)
 
   return {
-    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${body}</svg>`,
+    source: `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">${STYLE}${twinned(body)}</svg>`,
     width,
     height,
   }

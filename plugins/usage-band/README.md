@@ -43,6 +43,8 @@ In Claude Code Desktop, rest the pointer on a part of the row to read its exact 
 
 The time left is colored in proportion, with no steps: every shade between the three stands for a share of the window still ahead.
 
+Under a light color scheme every color is drawn a shade darker, so it stays readable on a light ground; the pictures on this page switch the same way with your own scheme.
+
 The agents mark, a robot head, and the commands mark, a terminal window, are grey at zero and blue while any is at work. A `sleep` the session starts as a pacing timer is not counted as a command.
 
 ### Pace
@@ -112,7 +114,7 @@ claude plugin uninstall usage-band@perky-team
 
 | Where | Works | How it draws |
 | --- | --- | --- |
-| Claude Code Desktop, local sessions of the Code tab | Yes | One SVG picture with tooltips; its colors are fixed and do not follow the app's theme |
+| Claude Code Desktop, local sessions of the Code tab | Yes | One SVG picture with tooltips; darker colors under a light color scheme |
 | Terminal | Yes | One line of text glyphs in the theme's colors |
 | Mobile app | Not tested | |
 | VS Code chat panel | No | The mod runs, but the editor draws no row above the prompt |
