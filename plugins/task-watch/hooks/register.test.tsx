@@ -4,6 +4,7 @@ import type { On } from 'claude-code'
 import {
   describe,
   formatSpan,
+  isOwnWords,
   looksLikeService,
   needsWatcher,
   formatStamp,
@@ -100,15 +101,21 @@ test('earlier runs of a command give its usual time', async () => {
   }
 
   // The numbers in a command do not make it another command.
-  expect(usual(runs, 'npm test 22')).toBe(200)
+  // A command never run before: the similar ones, said to be only similar.
+  expect(usual(runs, 'npm test 22')).toEqual({ ms: 200, isExact: false })
   expect(usual(runs, 'npm run build')).toBe(null)
+  // The very command, run before: its own runs, not the similar ones.
+  runs = withRun(runs, 'npm test 22', 900)
+  expect(usual(runs, 'npm test 22')).toEqual({ ms: 900, isExact: true })
+  expect(usual(runs, 'npm test 1')).toEqual({ ms: 200, isExact: true })
+  expect(usual(runs, 'npm test 7')).toEqual({ ms: 300, isExact: false })
 
   for (const ms of [1, 2, 3, 4, 5, 6]) {
     runs = withRun(runs, 'make', ms)
   }
 
   // Only the last five runs are kept.
-  expect(usual(runs, 'make')).toBe(4)
+  expect(usual(runs, 'make')).toEqual({ ms: 4, isExact: true })
 })
 
 test('the watcher is told which language to write in', async () => {
@@ -160,11 +167,16 @@ test("the watcher's answer is read leniently", async () => {
     reason: '',
     subject: '',
     services: [],
+    titles: {},
   })
   expect(parseReport('{"status": "Dev server up", "verdict": "ok", "reason": "", "subject": "", "services": ["b1", 7]}')?.services).toEqual(['b1'])
   expect(
     parseReport('Here you go:\n```json\n{"status": "Retrying\\nthe upload", "verdict": "suspect", "reason": "same error 5 times"}\n```'),
-  ).toEqual({ status: 'Retrying the upload', verdict: 'suspect', reason: 'same error 5 times', subject: '', services: [] })
+  ).toEqual({ status: 'Retrying the upload', verdict: 'suspect', reason: 'same error 5 times', subject: '', services: [], titles: {} })
+  expect(
+    parseReport('{"status": "Сборка", "verdict": "ok", "reason": "", "subject": "", "services": [], "titles": {"b1": "Сборка релиза", "b2": 5, "b3": " "}}')
+      ?.titles,
+  ).toEqual({ b1: 'Сборка релиза' })
   // An unknown verdict is no alarm; no status is no report.
   expect(parseReport('{"status": "Working", "verdict": "maybe"}')?.verdict).toBe('ok')
   expect(parseReport('{"verdict": "ok"}')).toBe(null)
@@ -351,7 +363,7 @@ test('output that stopped changing wakes the main model whatever the watcher say
   expect(woken[0]!.includes('Why: no output for 10m 0s')).toBe(true)
 
   const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
-  expect((await ui.find({ type: 'Text', text: /./ }))?.text).toBe('⚠ 22.11 14:40 · Waiting for the server — no output for 10m 0s')
+  expect((await ui.find({ type: 'Text', text: /./ }))?.text).toBe('⚠ 22.11 14:40 · Waiting for the server — ⏸ 10m 0s')
   await ui.unmount()
 })
 
@@ -473,4 +485,44 @@ test('a task raised once is not raised again until it changes, and the model can
   await clock.advance(5 * MINUTE)
   expect(state.woken.length).toBe(2)
   expect(state.woken[1]!.includes('Why: the registry answers 503')).toBe(true)
+})
+
+test('the language sample leaves out what is not the person\'s own words', async () => {
+  expect(
+    sampleOf('<!-- reply 1 -->\n> Status every 5 minutes on long work\n\nэто поправишь? `npm run build` https://example.com/x'),
+  ).toBe('это поправишь?')
+  expect(sampleOf('```\nTraceback (most recent call last)\n```\nпочему падает?')).toBe('почему падает?')
+  expect(isOwnWords('task-watch: the background command "x" may need attention.')).toBe(false)
+  expect(isOwnWords('<task-notification>')).toBe(false)
+  expect(isOwnWords('почему?')).toBe(true)
+})
+
+test('the row names work by the watcher\'s title, in the person\'s language', async ($, on) => {
+  const clock = mock.clock(on)
+  await clock.set(START)
+  mock.store(on)
+
+  const { state } = world(on, 'npx vite --port 5199')
+
+  state.reply =
+    '{"status": "Сервер Vite запущен на 5199", "verdict": "ok", "reason": "", "subject": "", "services": ["b9"], "titles": {"b9": "Сервер Vite"}}'
+
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true })
+  await $.tool.call({ tool: 'Bash', command: 'npx vite --port 5199', description: 'Start the Vite dev server', run_in_background: true })
+
+  const shown = async () => {
+    const ui = await $.ui.mount({ ...BAND, surface: 'terminal' })
+    const text = (await ui.find({ type: 'Text', text: /./ }))?.text
+    await ui.unmount()
+
+    return text
+  }
+
+  // Until the first look: the name the session gave.
+  expect(await shown()).toBe('▸ 22.11 14:30 · Start the Vite dev server')
+  await clock.advance(20 * 1000)
+  expect(await shown()).toBe('▸ 22.11 14:30 · Сервер Vite запущен на 5199')
+  // A quiet service after that: the watcher's title, no English of the mod's.
+  await clock.advance(30 * MINUTE)
+  expect(await shown()).toBe('▸ 22.11 15:00 · Сервер Vite · 30m 0s')
 })

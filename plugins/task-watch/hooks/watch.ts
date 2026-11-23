@@ -13,6 +13,7 @@ import {
   isService,
   isStalled,
   mayAlert,
+  nameOf,
   needsWatcher,
   outputAt,
   parseReport,
@@ -30,6 +31,7 @@ const line = atom({ plugin: 'task-watch', key: 'line' } as const, null)
 const sample = atom({ plugin: 'task-watch', key: 'sample' } as const, '')
 
 const DURATIONS = 'durations'
+const SAMPLE = 'sample'
 // An output file past this is judged by its age alone: its end is not read.
 const READ_LIMIT = 1_000_000
 // How long the last line stays once nothing is left to watch.
@@ -73,8 +75,8 @@ export async function finish($: EngineInterface, id: string, status: string): Pr
 
   // No words of the mod's own: the mark, the work's name and how long it ran.
   const closing: Line = isGood
-    ? { text: `${ended.label} · ${formatSpan(ran)}`, level: 'ok', at: now }
-    : { text: `${ended.label} · ${status} · ${formatSpan(ran)}`, level: 'warn', at: now }
+    ? { text: `${nameOf(ended)} · ${formatSpan(ran)}`, level: 'ok', at: now }
+    : { text: `${nameOf(ended)} · ${status} · ${formatSpan(ran)}`, level: 'warn', at: now }
 
   await update($, line, () => closing)
 }
@@ -116,10 +118,15 @@ async function gather($: EngineInterface, work: Watched, now: number, durations:
   const facts: Facts = {
     watched: work,
     elapsedMs: now - work.startedAt,
-    usualMs: work.kind === 'command' ? usual(durations, work.command) : null,
+    usualMs: null,
     silentMs: null,
     last: '',
   }
+
+  const before = work.kind === 'command' ? usual(durations, work.command) : null
+
+  facts.usualMs = before?.ms ?? null
+  facts.usualIsExact = before?.isExact ?? true
 
   try {
     if (work.kind === 'agent') {
@@ -165,18 +172,32 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
     facts.push(await gather($, work, now, durations))
   }
 
-  // Before the person has typed anything since the mod loaded, their last
-  // message in the transcript says which language they read.
+  // Before the person has typed anything since the mod loaded, their last own
+  // message in the transcript says which language they read; failing that, the
+  // last one any session of theirs kept.
   if ((await read($, sample)) === '') {
+    let found = ''
+
     try {
       const rows = await $.session.messages()
-      const own = [...rows].reverse().find(row => row.role === 'user' && isOwnWords(row.text))
 
-      if (own) {
-        await update($, sample, () => sampleOf(own.text))
-      }
+      found = [...rows]
+        .reverse()
+        .filter(row => row.role === 'user' && isOwnWords(row.text))
+        .map(row => sampleOf(row.text))
+        .find(text => /\p{L}{3}/u.test(text)) ?? ''
     } catch {
-      // No transcript to read: the watcher writes in English.
+      // No transcript to read.
+    }
+
+    if (found === '') {
+      const kept: unknown = await $.store.get(SAMPLE)
+
+      found = typeof kept === 'string' ? kept : ''
+    }
+
+    if (found !== '') {
+      await update($, sample, () => found)
     }
   }
 
@@ -209,15 +230,22 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
     }
   }
 
-  // What this look learned: which work is a service, and when each output moved.
+  // What this look learned: which work is a service, what it is called in the
+  // person's language, and when each output moved.
   const services = new Set(report?.services ?? [])
+  const titles = report?.titles ?? {}
 
   await update($, watched, all =>
     all.map(w => {
       const seen = facts.find(f => f.watched.id === w.id)
       const changedAt = seen ? outputAt(seen, now) : null
 
-      return { ...w, service: w.service === true || services.has(w.id), outputAt: changedAt ?? w.outputAt ?? 0 }
+      return {
+        ...w,
+        service: w.service === true || services.has(w.id),
+        outputAt: changedAt ?? w.outputAt ?? 0,
+        ...(titles[w.id] ? { title: titles[w.id] } : {}),
+      }
     }),
   )
 
@@ -230,7 +258,7 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
   const subject = stalled[0] ?? suspect
   const why =
     stalled.length > 0
-      ? `no output for ${formatSpan(stalled[0]!.silentMs ?? 0)}`
+      ? `⏸ ${formatSpan(stalled[0]!.silentMs ?? 0)}`
       : (report?.reason ?? '')
   // Work the main model said is fine stays quiet until its output moves again.
   const ackedAt = subject?.watched.ackedAt ?? 0
@@ -241,8 +269,8 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
   const status =
     report?.status ??
     (looked.every(f => isService(f.watched))
-      ? looked.map(f => `${f.watched.label} · ${formatSpan(f.elapsedMs)}`).join(' · ')
-      : `${list.length} in the background · longest ${formatSpan(longest.elapsedMs)}`)
+      ? looked.map(f => `${nameOf(f.watched)} · ${formatSpan(f.elapsedMs)}`).join(' · ')
+      : `⏳ ${list.length} · ${formatSpan(longest.elapsedMs)}`)
   const written: Line = {
     text: `${status}${isWrong && why ? ` — ${why}` : ''}`,
     level: isWrong ? 'warn' : 'info',
@@ -255,7 +283,10 @@ export async function check($: EngineInterface, settings: Settings): Promise<voi
     await update($, watched, all => all.map(w => (w.id === subject.watched.id ? { ...w, alertedAt: now } : w)))
     // A turn of its own once the session is idle; not awaited, as it resolves
     // only when that turn starts.
-    void $.prompt.submit({ text: wakeText(subject, why || 'the watcher found it suspicious') })
+    // The main model reads the reason in English where the row shows a glyph.
+    const reason = stalled[0] === subject ? `no output for ${formatSpan(subject.silentMs ?? 0)}` : why
+
+    void $.prompt.submit({ text: wakeText(subject, reason || 'the watcher found it suspicious') })
   }
 }
 
@@ -272,7 +303,7 @@ export async function acknowledge($: EngineInterface, id: string, isServiceWork:
   await update($, watched, all =>
     all.map(w => (w.id === id ? { ...w, ackedAt: now, service: w.service === true || isServiceWork } : w)),
   )
-  const calm: Line = { text: known.label, level: 'info', at: now }
+  const calm: Line = { text: nameOf(known), level: 'info', at: now }
 
   await update($, line, held => (held?.level === 'warn' ? calm : held))
 
@@ -309,7 +340,13 @@ export async function look($: EngineInterface, settings: Settings): Promise<void
   }
 }
 
-// The person's own message, kept as the sample of the language to write in.
+// The person's own message, kept as the sample of the language to write in,
+// for this session and as the fallback of the next.
 export async function remember($: EngineInterface, text: string): Promise<void> {
+  if (!/\p{L}{3}/u.test(text)) {
+    return
+  }
+
   await update($, sample, () => text)
+  await $.store.set(SAMPLE, text)
 }

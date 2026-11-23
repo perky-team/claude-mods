@@ -49,17 +49,29 @@ export const notified = (text: string): { id: string; status: string } | null =>
   return id ? { id, status: /<status>([^<]+)<\/status>/.exec(text)?.[1]?.trim() ?? 'finished' } : null
 }
 
-// Runs of one command are compared under this: the numbers in it left out.
+// Runs are kept under two keys: the command itself, and the command with its
+// numbers left out, which joins runs of similar commands.
+const exactKey = (command: string): string => `=${command.trim().replace(/\s+/g, ' ').slice(0, 200)}`
+
 export const signature = (command: string): string => command.trim().replace(/\d+/g, '#').replace(/\s+/g, ' ').slice(0, 120)
 
 export type Durations = Readonly<Record<string, readonly number[]>>
 
 const KEPT_RUNS = 5
-const KEPT_COMMANDS = 200
+// Two keys a command: some two hundred commands.
+const KEPT_COMMANDS = 400
 
 export const withRun = (durations: Durations, command: string, ms: number): Durations => {
-  const key = signature(command)
-  const next = { ...durations, [key]: [...(durations[key] ?? []), ms].slice(-KEPT_RUNS) }
+  const next: Record<string, readonly number[]> = { ...durations }
+
+  for (const key of [exactKey(command), signature(command)]) {
+    // A key written again moves to the end, so the oldest are the first left out.
+    const runs = [...(next[key] ?? []), ms].slice(-KEPT_RUNS)
+
+    delete next[key]
+    next[key] = runs
+  }
+
   const keys = Object.keys(next)
 
   // The oldest commands go first once the record is full.
@@ -70,11 +82,26 @@ export const withRun = (durations: Durations, command: string, ms: number): Dura
   return next
 }
 
-// The middle of the runs on record; null with none.
-export const usual = (durations: Durations, command: string): number | null => {
-  const runs = [...(durations[signature(command)] ?? [])].sort((a, b) => a - b)
+const middle = (runs: readonly number[] | undefined): number | null => {
+  const sorted = [...(runs ?? [])].sort((a, b) => a - b)
 
-  return runs.length === 0 ? null : runs[Math.floor(runs.length / 2)]!
+  return sorted.length === 0 ? null : sorted[Math.floor(sorted.length / 2)]!
+}
+
+// The usual time of earlier runs: of this very command where it ran before,
+// else of similar ones, whose numbers differ and may change the work's size.
+export type Usual = { ms: number; isExact: boolean }
+
+export const usual = (durations: Durations, command: string): Usual | null => {
+  const exact = middle(durations[exactKey(command)])
+
+  if (exact !== null) {
+    return { ms: exact, isExact: true }
+  }
+
+  const similar = middle(durations[signature(command)])
+
+  return similar === null ? null : { ms: similar, isExact: false }
 }
 
 export const formatSpan = (ms: number): string => {
@@ -103,14 +130,27 @@ export const formatStamp = (at: number): string => {
 export const isOwnWords = (text: string): boolean => {
   const start = text.trim()
 
-  return start !== '' && !start.startsWith('<') && !start.startsWith('[')
+  return start !== '' && !start.startsWith('<') && !start.startsWith('[') && !start.startsWith('task-watch:')
 }
 
 // How soon after work starts it is first looked at.
 export const FIRST_LOOK_MS = 20 * 1000
 
 // The start of a message of the person's own, kept as a sample of their language.
-export const sampleOf = (text: string): string => text.replace(/\s+/g, ' ').trim().slice(0, 200)
+// What is left out first: comments, quoted lines, code and links, which are
+// often in another language than the person writes in.
+export const sampleOf = (text: string): string =>
+  text
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/```[\s\S]*?```/g, ' ')
+    .replace(/`[^`]*`/g, ' ')
+    .split('\n')
+    .filter(line => !line.trimStart().startsWith('>'))
+    .join(' ')
+    .replace(/https?:\/\/\S+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 200)
 
 export const tail = (text: string, limit: number): string => (text.length > limit ? `…${text.slice(-limit)}` : text)
 
@@ -123,7 +163,13 @@ export type Facts = {
   silentMs: number | null
   // The end of a command's output, or an agent's last words.
   last: string
+  // Whether `usualMs` is of this very command, or of similar ones.
+  usualIsExact?: boolean
 }
+
+// What the row calls the work: the watcher's name for it, in the person's
+// language, once it gave one; until then the name the session gave it.
+export const nameOf = (watched: { label: string; title?: string }): string => watched.title || watched.label
 
 export const isService = (watched: { kind: string; command: string; service?: boolean }): boolean =>
   watched.kind === 'command' && (watched.service === true || looksLikeService(watched.command))
@@ -136,7 +182,13 @@ export const describe = (facts: Facts): string => {
     ...(isService(watched) ? ['Kind: a service, meant to keep running until stopped'] : []),
     ...(watched.kind === 'command' ? [`Command line: ${watched.command.slice(0, 300)}`] : []),
     `Running for: ${formatSpan(facts.elapsedMs)}`,
-    `Usual duration of earlier runs: ${facts.usualMs === null ? 'unknown, first run on record' : formatSpan(facts.usualMs)}`,
+    `Usual duration of earlier runs: ${
+      facts.usualMs === null
+        ? 'unknown, first run on record'
+        : facts.usualIsExact === false
+          ? `${formatSpan(facts.usualMs)}, of similar commands whose numbers differ, which may change the amount of work`
+          : formatSpan(facts.usualMs)
+    }`,
     ...(facts.silentMs === null ? [] : [`Output last changed: ${formatSpan(facts.silentMs)} ago`]),
     watched.kind === 'agent' ? 'Its last words:' : 'End of its output:',
     facts.last.trim() ? facts.last.trim() : '(nothing yet)',
@@ -160,16 +212,24 @@ export const systemPrompt = (language: string, sample: string): string => {
   return [
     'You watch background work for a coding assistant and report on it to the person waiting.',
     'You are given facts about each piece of work: what it is, how long it has run, how long such runs usually take, when its output last changed, and the end of its output.',
-    'Answer with one JSON object and nothing else: {"status": string, "verdict": "ok" | "suspect", "reason": string, "subject": string, "services": string[]}.',
+    'Answer with one JSON object and nothing else: {"status": string, "verdict": "ok" | "suspect", "reason": string, "subject": string, "services": string[], "titles": {"<Id>": string}}.',
     `"status": one line, at most 110 characters, ${tongue}: what is being done right now and how far along it is. No preamble, no quotes, no line breaks.`,
     '"verdict": "suspect" only when the facts show a problem: errors or failures in the output, the same step or retry repeating, a run far longer than usual, or output that stopped changing where it should not. Work that is simply slow, or quiet while it builds or downloads, is "ok".',
     `"reason": empty for "ok"; for "suspect" one short sentence ${tongue} naming what looks wrong.`,
     '"subject": for "suspect", the Id of the work that looks wrong; otherwise empty.',
     '"services": the Ids of the work meant to keep running until stopped, such as a dev server, a file watcher or a log follower. Silence or no end is normal for these: they are "suspect" only on errors in their output.',
+    `"titles": for each Id, a short name for that work, at most 40 characters, ${tongue}, such as what a person would call it ("Vite dev server", "release build").`,
   ].join('\n')
 }
 
-export type Report = { status: string; verdict: 'ok' | 'suspect'; reason: string; subject: string; services: string[] }
+export type Report = {
+  status: string
+  verdict: 'ok' | 'suspect'
+  reason: string
+  subject: string
+  services: string[]
+  titles: Record<string, string>
+}
 
 const oneLine = (text: string, limit: number): string => {
   const flat = text.replace(/\s+/g, ' ').trim()
@@ -193,7 +253,7 @@ export const parseReport = (text: string): Report | null => {
       return null
     }
 
-    const { status, verdict, reason, subject, services } = parsed as Record<string, unknown>
+    const { status, verdict, reason, subject, services, titles } = parsed as Record<string, unknown>
 
     if (typeof status !== 'string' || !status.trim()) {
       return null
@@ -205,6 +265,14 @@ export const parseReport = (text: string): Report | null => {
       reason: typeof reason === 'string' ? oneLine(reason, 200) : '',
       subject: typeof subject === 'string' ? subject.trim() : '',
       services: Array.isArray(services) ? services.filter((id): id is string => typeof id === 'string') : [],
+      titles:
+        typeof titles === 'object' && titles !== null && !Array.isArray(titles)
+          ? Object.fromEntries(
+              Object.entries(titles as Record<string, unknown>)
+                .filter((entry): entry is [string, string] => typeof entry[1] === 'string' && entry[1].trim() !== '')
+                .map(([id, title]) => [id, oneLine(title, 40)]),
+            )
+          : {},
     }
   } catch {
     return null

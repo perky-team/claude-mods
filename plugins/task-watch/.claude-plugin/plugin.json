@@ -1,6 +1,6 @@
 {
   "name": "task-watch",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Watches background commands and agents: a one-line status above the prompt every few minutes, written by a small model, and a wake-up for the main model when the work looks stuck or wrong",
   "author": {
     "name": "perky-team"

@@ -2,6 +2,14 @@
 
 All notable changes to this plugin are recorded here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 1.2.0 - 2026-11-23
+
+- The row speaks the session's language more often:
+  - the watcher model names each piece of work in the person's language, and the row uses that name instead of the description the session gave it, which is often in English;
+  - the mod's own words are gone from the row: silence shows as `⏸ 10m 0s`, and the bare summary as `⏳ 2 · 6m 12s`;
+  - the language sample leaves out quoted lines, code, links and comments, skips the mod's own messages, and is kept for the next session.
+- The usual duration is that of the very command where it ran before; runs of similar commands, whose numbers differ, are used only when it never did, and the watcher is told they may differ in size.
+
 ## 1.1.0 - 2026-11-23
 
 - Services: a dev server, a file watcher or a log follower is meant to keep running and to stay quiet. It is known by its command (`vite`, `npm run dev`, `--watch`, `tail -f` and the like) or by the watcher model's word, and its silence is no longer taken for a stall: it is raised only on errors in its output.
