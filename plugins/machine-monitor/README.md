@@ -53,7 +53,7 @@ What stands out is colored:
 
 A working session is green; an idle one is dimmed.
 
-**A skill.** Ask the model what loads the machine, or why it is slow, and it runs the same script and shows its report as text.
+**A skill.** Ask the model what loads the machine, or why it is slow, and it runs the same script and shows its report as text. The skill runs on Haiku whatever the session's model, as its work is mechanical.
 
 The button belongs to this plugin alone. It sits at the right of whatever rows other mods draw above the prompt, such as [usage-band](../usage-band); with none of them installed it stands there by itself.
 

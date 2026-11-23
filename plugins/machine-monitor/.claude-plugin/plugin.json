@@ -1,6 +1,6 @@
 {
   "name": "machine-monitor",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "What loads this Linux machine now, in a pane beside the chat and as a skill: load, memory, disk, temperature, optional job queues, and the CPU and memory of each Claude session",
   "author": { "name": "perky-team" },
   "license": "MIT",

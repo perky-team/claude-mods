@@ -1,6 +1,7 @@
 ---
 name: machine-monitor
 description: Show what loads this Linux machine right now - load, memory, swap, disk and CPU temperature, any job queues set up in its config, and the CPU cores and memory of each owner of the machine, with every Claude session (Claude Desktop, Remote Control, SSH, terminal), its project and its busy process. Use when asked about the machine's load or resources, what a session uses, why the machine is slow, or before starting heavy work.
+model: haiku
 ---
 
 Run the script `resources.py` that sits beside this file, in this skill's base directory:

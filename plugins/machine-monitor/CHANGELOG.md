@@ -2,6 +2,11 @@
 
 All notable changes to this plugin are recorded here. Versions follow [Semantic Versioning](https://semver.org/).
 
+## 1.0.1 - 2026-11-23
+
+- A Remote Control bridge is recognised by its process (`remote-control` in its command line) instead of by its systemd unit's name, so a bridge in a unit of any name is shown, with its sessions under it.
+- The skill runs on Haiku (`model: haiku`): it only runs the script and shows its output.
+
 ## 1.0.0 - 2026-11-23
 
 First published version.

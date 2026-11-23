@@ -420,7 +420,11 @@ def main():
         members = [pid for pid, p in p1.items() if p["cg"] == r]
         sessions = [pid for pid in members if is_session(p1[pid]) and not is_session(p1.get(p1[pid]["ppid"], {"cmd": ""}))]
         unit = label(r, names, {pid: p1[pid] for pid in members})
-        if not args.a and not sessions and not unit.startswith(("Claude", "claude-rc")):
+        # A unit whose own top process is a Remote Control bridge, whatever the unit is named. A bridge that
+        # another process of the unit started (Claude Desktop's own) leaves the unit as it is.
+        tops = [pid for pid in sorted(members) if p1[pid]["ppid"] not in members]
+        bridge = next((pid for pid in tops if "remote-control" in p1[pid]["cmd"]), None)
+        if not args.a and not sessions and bridge is None and not unit.startswith("Claude"):
             continue
         if not args.a and os.path.basename(r).startswith("docker-") and cores < 0.1:
             dock[0] += cores
@@ -436,9 +440,8 @@ def main():
                 what = p1[top]["comm"]
         if sessions:
             what = f"{W['sessions']}: {len(sessions)}"
-        if unit.startswith("claude-rc") and members:
-            main_pid = min(members)
-            unit = f"Remote Control {os.path.basename(p1[main_pid]['cwd'])}"
+        if bridge is not None:
+            unit = f"Remote Control {os.path.basename(p1[bridge]['cwd'])}"
         owner = {"name": unit, "cores": round(cores, 3), "mem": mem, "what": what, "sessions": []}
         report["owners"].append(owner)
         if not args.json:
