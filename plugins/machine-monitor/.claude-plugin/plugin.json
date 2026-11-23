@@ -1,0 +1,25 @@
+{
+  "name": "machine-monitor",
+  "version": "1.0.0",
+  "description": "What loads this Linux machine now, in a pane beside the chat and as a skill: load, memory, disk, temperature, optional job queues, and the CPU and memory of each Claude session",
+  "author": { "name": "perky-team" },
+  "license": "MIT",
+  "repository": "https://github.com/perky-team/claude-mods",
+  "types": "./types/index.d.ts",
+  "network": { "hosts": [] },
+  "userConfig": {
+    "refreshSeconds": {
+      "type": "number",
+      "title": "Refresh every (seconds)",
+      "description": "How often the open pane reads the machine again; a closed or hidden pane reads nothing",
+      "default": 5
+    },
+    "language": {
+      "type": "string",
+      "title": "Language",
+      "description": "The language of the pane",
+      "default": "en",
+      "options": ["en", "ru"]
+    }
+  }
+}

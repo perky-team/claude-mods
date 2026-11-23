@@ -16,6 +16,11 @@
       "name": "task-watch",
       "source": "./plugins/task-watch",
       "description": "Watches background commands and agents: a one-line status above the prompt every few minutes, written by a small model, and a wake-up for the main model when the work looks stuck or wrong"
+    },
+    {
+      "name": "machine-monitor",
+      "source": "./plugins/machine-monitor",
+      "description": "What loads this Linux machine now, in a pane beside the chat and as a skill: load, memory, disk, temperature, optional job queues, and the CPU and memory of each Claude session"
     }
   ]
 }
